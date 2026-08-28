@@ -1,6 +1,5 @@
 "use server";
 
-import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -13,14 +12,22 @@ export async function loginAction(formData: FormData) {
     password: z.string().min(8)
   }).parse({ email: formData.get("email"), password: formData.get("password") });
 
+  const configuredEmail = process.env.AUTH_BOOTSTRAP_EMAIL?.trim().toLowerCase();
+  const configuredPassword = process.env.AUTH_BOOTSTRAP_PASSWORD;
+  if (!configuredEmail || !configuredPassword || configuredPassword.length < 12) {
+    throw new Error("Configura AUTH_BOOTSTRAP_EMAIL y AUTH_BOOTSTRAP_PASSWORD (mínimo 12 caracteres).");
+  }
+
+  const normalizedEmail = data.email.trim().toLowerCase();
+  if (normalizedEmail !== configuredEmail || data.password !== configuredPassword) {
+    redirect("/login?error=1");
+  }
+
   const user = await prisma.user.findUnique({
-    where: { email: data.email.trim().toLowerCase() },
+    where: { email: normalizedEmail },
     include: { roles: { include: { role: true } } }
   });
-
-  if (!user || user.status !== "ACTIVE" || !user.passwordHash) redirect("/login?error=1");
-  const valid = await bcrypt.compare(data.password, user.passwordHash);
-  if (!valid) redirect("/login?error=1");
+  if (!user || user.status !== "ACTIVE") redirect("/login?error=1");
 
   const token = await signSession({
     userId: user.id,
