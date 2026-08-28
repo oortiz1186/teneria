@@ -30,6 +30,7 @@ export async function createUser(formData: FormData) {
       email: data.email.trim().toLowerCase(),
       passwordHash,
       status: "ACTIVE",
+      mustChangePassword: true,
       roles: { create: roleIds.map(roleId => ({ roleId })) }
     },
     include: { roles: { include: { role: true } } }
@@ -40,7 +41,7 @@ export async function createUser(formData: FormData) {
     action: "USER_CREATED",
     entityType: "User",
     entityId: user.id,
-    after: { id: user.id, name: user.name, email: user.email, status: user.status, roles: user.roles.map(r => r.role.code) }
+    after: { id: user.id, name: user.name, email: user.email, status: user.status, mustChangePassword: true, roles: user.roles.map(r => r.role.code) }
   });
   revalidatePath("/configuracion");
 }
@@ -109,7 +110,7 @@ export async function resetUserPassword(formData: FormData) {
 
   await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash, mustChangePassword: false, sessionVersion: { increment: 1 } }
+    data: { passwordHash, mustChangePassword: true, sessionVersion: { increment: 1 } }
   });
 
   await writeAuditLog({
@@ -117,7 +118,7 @@ export async function resetUserPassword(formData: FormData) {
     action: "USER_PASSWORD_RESET",
     entityType: "User",
     entityId: userId,
-    after: { passwordReset: true, sessionsRevoked: true }
+    after: { passwordReset: true, temporaryPassword: true, mustChangePassword: true, sessionsRevoked: true }
   });
   revalidatePath("/configuracion");
 }
