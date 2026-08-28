@@ -7,33 +7,214 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserStatus { ACTIVE INACTIVE }
-enum LotStatus { RECEIVED IN_PROCESS ON_HOLD COMPLETED REJECTED CANCELLED }
-enum ReceiptStatus { DRAFT CONFIRMED CANCELLED }
-enum ProcessExecutionStatus { PENDING IN_PROGRESS COMPLETED ON_HOLD CANCELLED }
-enum ProductionOrderStatus { DRAFT RELEASED IN_PROGRESS COMPLETED CANCELLED }
-enum MachineStatus { AVAILABLE IN_USE MAINTENANCE INACTIVE }
-enum LotRelationType { SPLIT MERGE REPROCESS TRANSFORM }
-enum MovementType { RECEIPT TRANSFER PROCESS_IN PROCESS_OUT SPLIT MERGE ADJUSTMENT REJECTION FINISHED_GOODS }
-enum ChemicalMovementType { RECEIPT CONSUMPTION ADJUSTMENT TRANSFER_IN TRANSFER_OUT RETURN }
-enum RecipeBasis { WEIGHT_PERCENT FIXED_QUANTITY }
-enum QualityInspectionStatus { DRAFT APPROVED CONDITIONAL REJECTED REWORK_REQUIRED }
-enum QualitySeverity { LOW MEDIUM HIGH CRITICAL }
-enum QualityDisposition { RELEASE REWORK REJECT HOLD }
-enum QuoteStatus { DRAFT SENT ACCEPTED REJECTED EXPIRED CANCELLED }
-enum SalesOrderStatus { DRAFT CONFIRMED IN_PRODUCTION READY PARTIALLY_SHIPPED SHIPPED CANCELLED }
-enum ShipmentStatus { DRAFT ISSUED CANCELLED }
-enum CommercialUnit { PIECE KG DM2 FT2 }
-enum PurchaseRequestStatus { DRAFT REQUESTED APPROVED REJECTED CONVERTED CANCELLED }
-enum PurchaseOrderStatus { DRAFT ISSUED PARTIALLY_RECEIVED RECEIVED CANCELLED }
-enum SupplierInvoiceStatus { OPEN PARTIALLY_PAID PAID CANCELLED }
-enum ReceivableStatus { OPEN PARTIALLY_PAID PAID CANCELLED }
-enum PaymentDirection { INCOME EXPENSE }
-enum PaymentMethod { CASH TRANSFER CARD CHECK OTHER }
-enum ExpenseStatus { DRAFT POSTED CANCELLED }
-enum CostCategory { RAW_HIDE CHEMICAL LABOR WATER ENERGY MACHINE REWORK OVERHEAD OTHER }
-enum AccountingSyncStatus { PENDING PROCESSING EXPORTED ERROR RECONCILED }
-enum AccountingEntityType { SUPPLIER_INVOICE RECEIVABLE PAYMENT EXPENSE SALES_ORDER PURCHASE_ORDER }
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LotStatus {
+  RECEIVED
+  IN_PROCESS
+  ON_HOLD
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum ReceiptStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+enum ProcessExecutionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum ProductionOrderStatus {
+  DRAFT
+  RELEASED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MachineStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum LotRelationType {
+  SPLIT
+  MERGE
+  REPROCESS
+  TRANSFORM
+}
+
+enum MovementType {
+  RECEIPT
+  TRANSFER
+  PROCESS_IN
+  PROCESS_OUT
+  SPLIT
+  MERGE
+  ADJUSTMENT
+  REJECTION
+  FINISHED_GOODS
+}
+
+enum ChemicalMovementType {
+  RECEIPT
+  CONSUMPTION
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN
+}
+
+enum RecipeBasis {
+  WEIGHT_PERCENT
+  FIXED_QUANTITY
+}
+
+enum QualityInspectionStatus {
+  DRAFT
+  APPROVED
+  CONDITIONAL
+  REJECTED
+  REWORK_REQUIRED
+}
+
+enum QualitySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum QualityDisposition {
+  RELEASE
+  REWORK
+  REJECT
+  HOLD
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  IN_PRODUCTION
+  READY
+  PARTIALLY_SHIPPED
+  SHIPPED
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum CommercialUnit {
+  PIECE
+  KG
+  DM2
+  FT2
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  REQUESTED
+  APPROVED
+  REJECTED
+  CONVERTED
+  CANCELLED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum SupplierInvoiceStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum ReceivableStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum PaymentDirection {
+  INCOME
+  EXPENSE
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  CHECK
+  OTHER
+}
+
+enum ExpenseStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum CostCategory {
+  RAW_HIDE
+  CHEMICAL
+  LABOR
+  WATER
+  ENERGY
+  MACHINE
+  REWORK
+  OVERHEAD
+  OTHER
+}
+
+enum AccountingSyncStatus {
+  PENDING
+  PROCESSING
+  EXPORTED
+  ERROR
+  RECONCILED
+}
+
+enum AccountingEntityType {
+  SUPPLIER_INVOICE
+  RECEIVABLE
+  PAYMENT
+  EXPENSE
+  SALES_ORDER
+  PURCHASE_ORDER
+}
 
 model User {
   id String @id @default(cuid())
@@ -49,8 +230,22 @@ model User {
   roles UserRole[]
   auditLogs AuditLog[]
 }
-model Role { id String @id @default(cuid()) code String @unique name String description String? users UserRole[] }
-model UserRole { userId String roleId String user User @relation(fields:[userId],references:[id],onDelete:Cascade) role Role @relation(fields:[roleId],references:[id],onDelete:Cascade) @@id([userId,roleId]) }
+
+model Role {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  users UserRole[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  role Role @relation(fields:[roleId],references:[id],onDelete:Cascade)
+  @@id([userId,roleId])
+}
 
 model Supplier {
   id String @id @default(cuid())
