@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -7,12 +8,24 @@ async function main() {
   for (const [code,name] of roles) await prisma.role.upsert({ where:{code}, update:{name}, create:{code,name} });
 
   const bootstrapEmail = process.env.AUTH_BOOTSTRAP_EMAIL?.trim().toLowerCase();
-  if (bootstrapEmail) {
+  const bootstrapPassword = process.env.AUTH_BOOTSTRAP_PASSWORD;
+  if (bootstrapEmail && bootstrapPassword) {
+    if (bootstrapPassword.length < 12) throw new Error("AUTH_BOOTSTRAP_PASSWORD debe tener al menos 12 caracteres.");
     const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: "ADMIN" } });
+    const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
     const admin = await prisma.user.upsert({
       where: { email: bootstrapEmail },
-      update: { name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador", status: "ACTIVE" },
-      create: { email: bootstrapEmail, name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador", status: "ACTIVE" }
+      update: {
+        name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador",
+        status: "ACTIVE",
+        passwordHash
+      },
+      create: {
+        email: bootstrapEmail,
+        name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador",
+        status: "ACTIVE",
+        passwordHash
+      }
     });
     await prisma.userRole.upsert({
       where: { userId_roleId: { userId: admin.id, roleId: adminRole.id } },
@@ -31,10 +44,14 @@ async function main() {
 
   const route = await prisma.productionRoute.upsert({ where: { code: "FULL-CYCLE" }, update: { name: "Ciclo completo estándar", active: true }, create: { code: "FULL-CYCLE", name: "Ciclo completo estándar", description: "Ruta inicial configurable desde remojo hasta calidad." } });
   const routeCodes = ["SOAKING","LIMING","FLESHING","SPLITTING","DELIMING","PICKLING","TANNING","SAMMYING","SHAVING","RETANNING","DYEING","FATLIQUORING","DRYING","FINISHING","QUALITY"];
-  await prisma.productionRouteStep.deleteMany({ where: { routeId: route.id } });
   for (let i = 0; i < routeCodes.length; i++) {
     const process = await prisma.processCatalog.findUniqueOrThrow({ where: { code: routeCodes[i] } });
-    await prisma.productionRouteStep.create({ data: { routeId: route.id, processId: process.id, sequence: (i + 1) * 10 } });
+    const sequence = (i + 1) * 10;
+    await prisma.productionRouteStep.upsert({
+      where: { routeId_sequence: { routeId: route.id, sequence } },
+      update: { processId: process.id, required: true },
+      create: { routeId: route.id, processId: process.id, sequence }
+    });
   }
 
   const defects = [
