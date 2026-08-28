@@ -4,40 +4,35 @@ ERP especializado para operación integral de tenerías.
 
 ## Estado actual
 
-### Fases 1 a 7
+### Fases 1 a 8
 Estado: completadas en su alcance inicial.
 
-Incluyen recepción y lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración y costos/contabilidad.
+Incluyen recepción/lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración, costos/contabilidad, dashboard ejecutivo, operación de piso y auditoría operacional.
 
-### Fase 8 — Indicadores y piso
-Estado: completada en su alcance inicial.
+### Endurecimiento para producción — Etapa 1
+Estado: en progreso, primera pasada implementada.
 
 Implementado:
 
-- dashboard ejecutivo con KPIs de producción;
-- lotes en proceso y terminados;
-- órdenes de producción activas y vencidas;
-- alertas de inventario mínimo;
-- equipos en mantenimiento;
-- CxC y CxP pendientes;
-- costo acumulado y margen comercial;
-- accesos rápidos a módulos operativos;
-- módulo `/operacion` optimizado para piso;
-- procesos activos por lote, máquina e inicio;
-- disponibilidad de máquinas;
-- envío básico de equipo a mantenimiento y liberación;
-- alertas de inventario para operación;
-- indicadores ambientales iniciales basados en registros WATER y ENERGY del costeo;
-- actividad reciente de movimientos de lote;
-- vista `/auditoria` con cronología consolidada de producción, inventario, calidad y finanzas;
-- navegación responsive para tablet y celular;
-- menú móvil horizontal persistente;
-- tablas con desplazamiento horizontal en pantallas pequeñas;
-- tarjetas y formularios adaptables a móvil.
+- login obligatorio para acceder al ERP;
+- sesión firmada con `AUTH_SECRET`;
+- cookie de sesión `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
+- duración de sesión de 8 horas;
+- autorización de rutas por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
+- helpers de servidor `requireUser` y `requireRole` para proteger acciones sensibles;
+- ventas protegidas por rol y validaciones adicionales Pedido → Lote → Remisión;
+- compras protegidas por rol;
+- recepción de químicos con validación de cantidades pendientes y almacén obligatorio;
+- movimientos de inventario enlazados al lote químico recibido;
+- finanzas protegidas por rol;
+- validaciones de cliente/pedido/remisión en CxC;
+- bloqueo de pagos/cobros sobre documentos cerrados;
+- folios resistentes a colisión basados en fecha + UUID para nuevos flujos endurecidos;
+- pantalla de login y cierre de sesión;
+- administrador inicial configurable sólo por variables de entorno;
+- CI de GitHub Actions para validar Prisma y TypeScript en cada push/PR.
 
-La auditoría actual consolida los eventos ya registrados por los módulos. La auditoría avanzada de usuario, IP y valores antes/después se implementará junto con autenticación/autorización completa.
-
-El mantenimiento de esta fase controla disponibilidad y estado básico del equipo. Órdenes de mantenimiento, refacciones, técnicos, calendario preventivo y costos de mantenimiento pueden agregarse en una fase posterior de endurecimiento operativo.
+La autenticación inicial usa un administrador bootstrap configurado en el entorno. No existe una contraseña fija dentro del repositorio. La siguiente evolución será administrar credenciales individuales por usuario, cambio de contraseña, recuperación y auditoría de sesión.
 
 ## Requisitos
 
@@ -45,40 +40,52 @@ El mantenimiento de esta fase controla disponibilidad y estado básico del equip
 - Docker / Docker Compose
 - npm
 
-## Actualizar una instalación existente
+## Configuración inicial
 
-Si ya aplicaste la migración de Fase 7, esta fase no agrega tablas nuevas:
+Copia `.env.example` a `.env` y cambia todos los secretos:
 
-```bash
-git pull
-npm install
-npm run db:generate
-npm run dev
+```env
+DATABASE_URL="postgresql://teneria:teneria_dev@localhost:5434/teneria?schema=public"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+AUTH_SECRET="genera-un-secreto-aleatorio-de-mas-de-32-caracteres"
+AUTH_BOOTSTRAP_EMAIL="tu-admin@empresa.com"
+AUTH_BOOTSTRAP_PASSWORD="una-contrasena-unica-de-minimo-12-caracteres"
+AUTH_BOOTSTRAP_NAME="Administrador"
 ```
 
-Si todavía no has aplicado Fase 7:
+No uses los valores de ejemplo en producción y nunca subas `.env` al repositorio.
+
+## Actualizar una instalación existente
 
 ```bash
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase7_costos_contabilidad
 npm run db:seed
 npm run dev
 ```
 
+Si todavía no aplicaste las migraciones de las fases anteriores, ejecuta también las migraciones pendientes antes del seed.
+
 Abrir:
 
+- `http://localhost:3000/login` — Inicio de sesión
 - `http://localhost:3000` — Dashboard ejecutivo
 - `http://localhost:3000/operacion` — Piso / operación
 - `http://localhost:3000/auditoria` — Auditoría operacional
 - `http://localhost:3000/costos` — Costos y margen
 
-Configurar en `.env` la URL pública usada por los QR cuando el sistema se despliegue:
+## Roles
 
-```env
-NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
-```
+- `ADMIN`: acceso total y configuración/auditoría.
+- `PRODUCTION`: producción, rutas, lotes y consumos relacionados.
+- `WAREHOUSE`: recepciones, almacenes e inventarios.
+- `QUALITY`: calidad, lotes y operación relacionada.
+- `SALES`: clientes, cotizaciones, pedidos y remisiones.
+- `PURCHASING`: requisiciones, órdenes de compra y recepción.
+- `FINANCE`: CxC, CxP, pagos, gastos y costos.
+
+El usuario administrador bootstrap recibe el rol `ADMIN` al ejecutar `npm run db:seed`.
 
 ## Flujo integral actual
 
@@ -88,17 +95,15 @@ Compras:
 
 Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
 
-## Siguiente etapa recomendada
+## Próximos pasos de endurecimiento
 
-Con las ocho fases iniciales cubiertas, el siguiente trabajo ya no debería ser agregar módulos indiscriminadamente, sino endurecer el ERP para uso real:
-
-1. autenticación y permisos reales por rol;
-2. auditoría antes/después por usuario;
-3. pruebas automáticas y validación de concurrencia;
-4. folios transaccionales robustos;
-5. órdenes de mantenimiento preventivo/correctivo;
-6. carga real de fotografías/documentos;
-7. PWA/offline para piso;
-8. worker Windows para CONTPAQi;
-9. despliegue productivo, backups y monitoreo;
-10. ajuste de catálogos, rutas y recetas con el proceso real de la tenería.
+1. credenciales individuales con hash por usuario y administración de usuarios;
+2. auditoría before/after con usuario, IP y origen;
+3. proteger todas las server actions restantes con `requireRole`;
+4. reemplazar los folios timestamp restantes por el generador robusto;
+5. pruebas de concurrencia en inventario, lotes, pagos y procesos;
+6. órdenes de mantenimiento preventivo/correctivo y refacciones;
+7. almacenamiento real de fotografías/PDF/XML;
+8. PWA/offline para piso;
+9. worker Windows para CONTPAQi;
+10. backups, monitoreo y despliegue productivo.
