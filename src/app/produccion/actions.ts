@@ -30,29 +30,55 @@ export async function startProcess(formData: FormData) {
     const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
     const process = await tx.processCatalog.findUniqueOrThrow({ where: { id: data.processId } });
 
-    const active = await tx.lotProcess.findFirst({
-      where: { lotId: lot.id, status: "IN_PROGRESS" }
-    });
+    const active = await tx.lotProcess.findFirst({ where: { lotId: lot.id, status: "IN_PROGRESS" } });
     if (active) throw new Error("El lote ya tiene un proceso activo.");
 
     if (data.machineId) {
-      const machineBusy = await tx.lotProcess.findFirst({
-        where: { machineId: data.machineId, status: "IN_PROGRESS" }
-      });
-      if (machineBusy) throw new Error("La máquina seleccionada está ocupada.");
+      const machine = await tx.machine.findUniqueOrThrow({ where: { id: data.machineId } });
+      if (!machine.active || machine.status !== "AVAILABLE") throw new Error("La máquina seleccionada no está disponible.");
+      if (machine.capacityKg && Number(lot.currentWeightKg) > Number(machine.capacityKg)) {
+        throw new Error("El peso del lote excede la capacidad de la máquina seleccionada.");
+      }
     }
 
-    await tx.lotProcess.create({
-      data: {
-        lotId: lot.id,
-        processId: process.id,
-        machineId: data.machineId,
-        status: "IN_PROGRESS",
-        startedAt: new Date(),
-        inputHides: lot.currentHides,
-        inputWeightKg: lot.currentWeightKg
-      }
+    const pendingSteps = await tx.lotProcess.findMany({
+      where: { lotId: lot.id, status: "PENDING" },
+      include: { routeStep: true },
+      orderBy: { routeStep: { sequence: "asc" } }
     });
+
+    let executionId: string | undefined;
+    if (pendingSteps.length > 0) {
+      const next = pendingSteps[0];
+      if (next.processId !== process.id) {
+        throw new Error("El proceso seleccionado no es el siguiente paso de la ruta del lote.");
+      }
+      executionId = next.id;
+      await tx.lotProcess.update({
+        where: { id: next.id },
+        data: {
+          machineId: data.machineId,
+          status: "IN_PROGRESS",
+          startedAt: new Date(),
+          inputHides: lot.currentHides,
+          inputWeightKg: lot.currentWeightKg
+        }
+      });
+    } else {
+      const created = await tx.lotProcess.create({
+        data: {
+          lotId: lot.id,
+          processId: process.id,
+          productionOrderId: lot.productionOrderId,
+          machineId: data.machineId,
+          status: "IN_PROGRESS",
+          startedAt: new Date(),
+          inputHides: lot.currentHides,
+          inputWeightKg: lot.currentWeightKg
+        }
+      });
+      executionId = created.id;
+    }
 
     await tx.tanneryLot.update({
       where: { id: lot.id },
@@ -69,7 +95,7 @@ export async function startProcess(formData: FormData) {
         type: "PROCESS_IN",
         hidesQuantity: lot.currentHides,
         weightKg: lot.currentWeightKg,
-        reference: process.code
+        reference: `${process.code}:${executionId}`
       }
     });
   });
@@ -113,12 +139,17 @@ export async function completeProcess(formData: FormData) {
       }
     });
 
+    const remaining = await tx.lotProcess.count({
+      where: { lotId: execution.lotId, status: { in: ["PENDING", "IN_PROGRESS"] } }
+    });
+
     await tx.tanneryLot.update({
       where: { id: execution.lotId },
       data: {
         currentHides: data.outputHides,
         currentWeightKg: data.outputWeightKg,
-        currentProcessCode: execution.process.code
+        currentProcessCode: execution.process.code,
+        status: remaining === 0 && execution.productionOrderId ? "COMPLETED" : "IN_PROCESS"
       }
     });
 
@@ -136,9 +167,22 @@ export async function completeProcess(formData: FormData) {
         notes: data.notes
       }
     });
+
+    if (execution.productionOrderId) {
+      const unfinishedLots = await tx.tanneryLot.count({
+        where: { productionOrderId: execution.productionOrderId, status: { not: "COMPLETED" } }
+      });
+      if (unfinishedLots === 0) {
+        await tx.productionOrder.update({
+          where: { id: execution.productionOrderId },
+          data: { status: "COMPLETED" }
+        });
+      }
+    }
   });
 
   revalidatePath("/produccion");
+  revalidatePath("/produccion/ordenes");
   revalidatePath("/lotes");
   revalidatePath("/");
 }
