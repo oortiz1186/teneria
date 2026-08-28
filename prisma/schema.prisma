@@ -1,5 +1,11 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
 enum UserStatus { ACTIVE INACTIVE }
 enum LotStatus { RECEIVED IN_PROCESS ON_HOLD COMPLETED REJECTED CANCELLED }
@@ -25,57 +31,840 @@ enum ReceivableStatus { OPEN PARTIALLY_PAID PAID CANCELLED }
 enum PaymentDirection { INCOME EXPENSE }
 enum PaymentMethod { CASH TRANSFER CARD CHECK OTHER }
 enum ExpenseStatus { DRAFT POSTED CANCELLED }
+enum CostCategory { RAW_HIDE CHEMICAL LABOR WATER ENERGY MACHINE REWORK OVERHEAD OTHER }
+enum AccountingSyncStatus { PENDING PROCESSING EXPORTED ERROR RECONCILED }
+enum AccountingEntityType { SUPPLIER_INVOICE RECEIVABLE PAYMENT EXPENSE SALES_ORDER PURCHASE_ORDER }
 
-model User { id String @id @default(cuid()) name String email String @unique status UserStatus @default(ACTIVE) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt roles UserRole[] }
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  status UserStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  roles UserRole[]
+}
 model Role { id String @id @default(cuid()) code String @unique name String description String? users UserRole[] }
-model UserRole { userId String roleId String user User @relation(fields:[userId], references:[id], onDelete:Cascade) role Role @relation(fields:[roleId], references:[id], onDelete:Cascade) @@id([userId,roleId]) }
+model UserRole { userId String roleId String user User @relation(fields:[userId],references:[id],onDelete:Cascade) role Role @relation(fields:[roleId],references:[id],onDelete:Cascade) @@id([userId,roleId]) }
 
-model Supplier { id String @id @default(cuid()) code String @unique name String taxId String? phone String? email String? active Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt receipts RawHideReceipt[] chemicalLots ChemicalLot[] }
-model Customer { id String @id @default(cuid()) code String @unique name String taxId String? phone String? email String? active Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt productionOrders ProductionOrder[] quotes SalesQuote[] salesOrders SalesOrder[] shipments Shipment[] }
-model Warehouse { id String @id @default(cuid()) code String @unique name String description String? active Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt lotMovements LotMovement[] chemicalLots ChemicalLot[] chemicalMovements ChemicalStockMovement[] }
-model Machine { id String @id @default(cuid()) code String @unique name String type String capacityKg Decimal? @db.Decimal(12,3) status MachineStatus @default(AVAILABLE) active Boolean @default(true) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt executions LotProcess[] }
+model Supplier {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  taxId String?
+  phone String?
+  email String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  receipts RawHideReceipt[]
+  chemicalLots ChemicalLot[]
+  purchaseOrders PurchaseOrder[]
+  supplierInvoices SupplierInvoice[]
+  expenses Expense[]
+}
 
-model RawHideReceipt { id String @id @default(cuid()) folio String @unique supplierId String receiptDate DateTime status ReceiptStatus @default(DRAFT) transportRef String? origin String? notes String? totalHides Int @default(0) totalWeightKg Decimal @db.Decimal(12,3) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt supplier Supplier @relation(fields:[supplierId], references:[id]) items RawHideReceiptItem[] lots TanneryLot[] @@index([supplierId,receiptDate]) }
-model RawHideReceiptItem { id String @id @default(cuid()) receiptId String animalType String preservation String? qualityGrade String? hidesQuantity Int weightKg Decimal @db.Decimal(12,3) unitCost Decimal? @db.Decimal(14,4) notes String? receipt RawHideReceipt @relation(fields:[receiptId], references:[id], onDelete:Cascade) @@index([receiptId]) }
+model Customer {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  taxId String?
+  phone String?
+  email String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  productionOrders ProductionOrder[]
+  quotes SalesQuote[]
+  salesOrders SalesOrder[]
+  shipments Shipment[]
+  receivables AccountReceivable[]
+}
 
-model ProductionRoute { id String @id @default(cuid()) code String @unique name String description String? active Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt steps ProductionRouteStep[] orders ProductionOrder[] articles CommercialProduct[] }
-model ProductionRouteStep { id String @id @default(cuid()) routeId String processId String sequence Int estimatedMinutes Int? preferredMachineType String? required Boolean @default(true) route ProductionRoute @relation(fields:[routeId], references:[id], onDelete:Cascade) process ProcessCatalog @relation(fields:[processId], references:[id]) executions LotProcess[] @@unique([routeId,sequence]) @@index([processId]) }
-model ProductionOrder { id String @id @default(cuid()) folio String @unique customerId String? routeId String? salesOrderId String? articleCode String? targetColor String? requestedHides Int? requestedWeightKg Decimal? @db.Decimal(12,3) dueDate DateTime? status ProductionOrderStatus @default(DRAFT) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt customer Customer? @relation(fields:[customerId], references:[id]) route ProductionRoute? @relation(fields:[routeId], references:[id]) salesOrder SalesOrder? @relation(fields:[salesOrderId], references:[id]) lots TanneryLot[] executions LotProcess[] @@index([status,dueDate]) @@index([routeId]) @@index([salesOrderId]) }
-model TanneryLot { id String @id @default(cuid()) folio String @unique receiptId String? parentLotId String? productionOrderId String? articleCode String? animalType String status LotStatus @default(RECEIVED) currentProcessCode String? initialHides Int currentHides Int initialWeightKg Decimal @db.Decimal(12,3) currentWeightKg Decimal @db.Decimal(12,3) color String? qrToken String @unique @default(cuid()) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt receipt RawHideReceipt? @relation(fields:[receiptId], references:[id]) productionOrder ProductionOrder? @relation(fields:[productionOrderId], references:[id]) parentLot TanneryLot? @relation("LotHierarchy",fields:[parentLotId],references:[id]) childLots TanneryLot[] @relation("LotHierarchy") sourceRelations LotRelation[] @relation("LotRelationParent") targetRelations LotRelation[] @relation("LotRelationChild") processes LotProcess[] movements LotMovement[] qualityInspections QualityInspection[] shipmentItems ShipmentItem[] @@index([status]) @@index([receiptId]) @@index([productionOrderId]) @@index([parentLotId]) }
-model LotRelation { id String @id @default(cuid()) parentLotId String childLotId String relationType LotRelationType hidesQuantity Int? weightKg Decimal? @db.Decimal(12,3) notes String? createdAt DateTime @default(now()) parentLot TanneryLot @relation("LotRelationParent",fields:[parentLotId],references:[id],onDelete:Cascade) childLot TanneryLot @relation("LotRelationChild",fields:[childLotId],references:[id],onDelete:Cascade) @@unique([parentLotId,childLotId,relationType]) @@index([childLotId]) }
-model ProcessCatalog { id String @id @default(cuid()) code String @unique name String sequence Int description String? active Boolean @default(true) requiresWeight Boolean @default(true) requiresHides Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt executions LotProcess[] routeSteps ProductionRouteStep[] recipes Recipe[] qualityInspections QualityInspection[] @@index([sequence]) }
-model LotProcess { id String @id @default(cuid()) lotId String processId String machineId String? routeStepId String? productionOrderId String? status ProcessExecutionStatus @default(PENDING) startedAt DateTime? completedAt DateTime? inputHides Int? outputHides Int? inputWeightKg Decimal? @db.Decimal(12,3) outputWeightKg Decimal? @db.Decimal(12,3) temperatureC Decimal? @db.Decimal(6,2) ph Decimal? @db.Decimal(5,2) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade) process ProcessCatalog @relation(fields:[processId],references:[id]) machine Machine? @relation(fields:[machineId],references:[id]) routeStep ProductionRouteStep? @relation(fields:[routeStepId],references:[id]) productionOrder ProductionOrder? @relation(fields:[productionOrderId],references:[id]) chemicalConsumptions ProcessChemicalConsumption[] qualityInspections QualityInspection[] @@index([lotId,status]) @@index([processId,status]) @@index([machineId,status]) @@index([routeStepId]) @@index([productionOrderId]) }
-model LotMovement { id String @id @default(cuid()) lotId String warehouseId String? type MovementType occurredAt DateTime @default(now()) hidesQuantity Int? weightKg Decimal? @db.Decimal(12,3) reference String? notes String? lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade) warehouse Warehouse? @relation(fields:[warehouseId],references:[id]) @@index([lotId,occurredAt]) @@index([warehouseId,occurredAt]) }
+model Warehouse {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lotMovements LotMovement[]
+  chemicalLots ChemicalLot[]
+  chemicalMovements ChemicalStockMovement[]
+}
 
-model ChemicalProduct { id String @id @default(cuid()) code String @unique name String category String? unit String @default("kg") minStock Decimal? @db.Decimal(14,3) active Boolean @default(true) safetyNotes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt lots ChemicalLot[] recipeItems RecipeItem[] consumptions ProcessChemicalConsumption[] movements ChemicalStockMovement[] }
-model ChemicalLot { id String @id @default(cuid()) chemicalId String warehouseId String supplierId String? lotNumber String receivedAt DateTime @default(now()) expiresAt DateTime? initialQuantity Decimal @db.Decimal(14,3) currentQuantity Decimal @db.Decimal(14,3) unitCost Decimal? @db.Decimal(14,4) notes String? chemical ChemicalProduct @relation(fields:[chemicalId],references:[id]) warehouse Warehouse @relation(fields:[warehouseId],references:[id]) supplier Supplier? @relation(fields:[supplierId],references:[id]) movements ChemicalStockMovement[] consumptions ProcessChemicalConsumption[] @@unique([chemicalId,warehouseId,lotNumber]) @@index([chemicalId,expiresAt]) @@index([warehouseId]) }
-model ChemicalStockMovement { id String @id @default(cuid()) chemicalId String chemicalLotId String? warehouseId String type ChemicalMovementType quantity Decimal @db.Decimal(14,3) unitCost Decimal? @db.Decimal(14,4) occurredAt DateTime @default(now()) reference String? notes String? chemical ChemicalProduct @relation(fields:[chemicalId],references:[id]) chemicalLot ChemicalLot? @relation(fields:[chemicalLotId],references:[id]) warehouse Warehouse @relation(fields:[warehouseId],references:[id]) @@index([chemicalId,occurredAt]) @@index([warehouseId,occurredAt]) }
-model Recipe { id String @id @default(cuid()) code String @unique name String processId String version Int @default(1) active Boolean @default(true) effectiveFrom DateTime @default(now()) effectiveTo DateTime? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt process ProcessCatalog @relation(fields:[processId],references:[id]) items RecipeItem[] @@index([processId,active]) }
-model RecipeItem { id String @id @default(cuid()) recipeId String chemicalId String sequence Int basis RecipeBasis @default(WEIGHT_PERCENT) quantity Decimal @db.Decimal(14,4) tolerancePercent Decimal? @db.Decimal(8,3) notes String? recipe Recipe @relation(fields:[recipeId],references:[id],onDelete:Cascade) chemical ChemicalProduct @relation(fields:[chemicalId],references:[id]) @@unique([recipeId,sequence]) @@index([chemicalId]) }
-model ProcessChemicalConsumption { id String @id @default(cuid()) lotProcessId String chemicalId String chemicalLotId String? theoreticalQuantity Decimal? @db.Decimal(14,3) actualQuantity Decimal @db.Decimal(14,3) unitCost Decimal? @db.Decimal(14,4) totalCost Decimal? @db.Decimal(14,4) createdAt DateTime @default(now()) lotProcess LotProcess @relation(fields:[lotProcessId],references:[id],onDelete:Cascade) chemical ChemicalProduct @relation(fields:[chemicalId],references:[id]) chemicalLot ChemicalLot? @relation(fields:[chemicalLotId],references:[id]) @@index([lotProcessId]) @@index([chemicalId]) }
+model Machine {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  type String
+  capacityKg Decimal? @db.Decimal(12,3)
+  status MachineStatus @default(AVAILABLE)
+  active Boolean @default(true)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  executions LotProcess[]
+}
 
-model QualityDefectCatalog { id String @id @default(cuid()) code String @unique name String category String? defaultSeverity QualitySeverity @default(MEDIUM) active Boolean @default(true) description String? findings QualityDefectFinding[] }
-model QualityInspection { id String @id @default(cuid()) folio String @unique lotId String lotProcessId String? processId String? status QualityInspectionStatus @default(DRAFT) disposition QualityDisposition? grade String? thicknessMm Decimal? @db.Decimal(8,3) areaDm2 Decimal? @db.Decimal(14,3) colorResult String? visualResult String? tensileResult String? adhesionResult String? flexResult String? inspectorName String? notes String? inspectedAt DateTime @default(now()) releasedAt DateTime? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade) lotProcess LotProcess? @relation(fields:[lotProcessId],references:[id]) process ProcessCatalog? @relation(fields:[processId],references:[id]) defects QualityDefectFinding[] evidence QualityEvidence[] @@index([lotId,inspectedAt]) @@index([status]) }
-model QualityDefectFinding { id String @id @default(cuid()) inspectionId String defectId String severity QualitySeverity affectedHides Int? affectedAreaDm2 Decimal? @db.Decimal(14,3) notes String? inspection QualityInspection @relation(fields:[inspectionId],references:[id],onDelete:Cascade) defect QualityDefectCatalog @relation(fields:[defectId],references:[id]) @@index([inspectionId]) @@index([defectId]) }
-model QualityEvidence { id String @id @default(cuid()) inspectionId String fileUrl String fileName String? mimeType String? notes String? createdAt DateTime @default(now()) inspection QualityInspection @relation(fields:[inspectionId],references:[id],onDelete:Cascade) @@index([inspectionId]) }
+model RawHideReceipt {
+  id String @id @default(cuid())
+  folio String @unique
+  supplierId String
+  receiptDate DateTime
+  status ReceiptStatus @default(DRAFT)
+  transportRef String?
+  origin String?
+  notes String?
+  totalHides Int @default(0)
+  totalWeightKg Decimal @db.Decimal(12,3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  supplier Supplier @relation(fields:[supplierId],references:[id])
+  items RawHideReceiptItem[]
+  lots TanneryLot[]
+  @@index([supplierId,receiptDate])
+}
 
-model CommercialProduct { id String @id @default(cuid()) code String @unique name String description String? unit CommercialUnit @default(DM2) basePrice Decimal @db.Decimal(14,4) taxRate Decimal @default(16) @db.Decimal(6,3) routeId String? active Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt route ProductionRoute? @relation(fields:[routeId],references:[id]) quoteItems SalesQuoteItem[] orderItems SalesOrderItem[] shipmentItems ShipmentItem[] @@index([active]) }
-model SalesQuote { id String @id @default(cuid()) folio String @unique customerId String status QuoteStatus @default(DRAFT) validUntil DateTime? subtotal Decimal @default(0) @db.Decimal(14,2) tax Decimal @default(0) @db.Decimal(14,2) total Decimal @default(0) @db.Decimal(14,2) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt customer Customer @relation(fields:[customerId],references:[id]) items SalesQuoteItem[] salesOrder SalesOrder? @@index([customerId,status]) }
-model SalesQuoteItem { id String @id @default(cuid()) quoteId String productId String description String quantity Decimal @db.Decimal(14,3) unitPrice Decimal @db.Decimal(14,4) subtotal Decimal @db.Decimal(14,2) tax Decimal @db.Decimal(14,2) total Decimal @db.Decimal(14,2) quote SalesQuote @relation(fields:[quoteId],references:[id],onDelete:Cascade) product CommercialProduct @relation(fields:[productId],references:[id]) @@index([quoteId]) }
-model SalesOrder { id String @id @default(cuid()) folio String @unique customerId String quoteId String? @unique status SalesOrderStatus @default(DRAFT) requestedDate DateTime? subtotal Decimal @default(0) @db.Decimal(14,2) tax Decimal @default(0) @db.Decimal(14,2) total Decimal @default(0) @db.Decimal(14,2) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt customer Customer @relation(fields:[customerId],references:[id]) quote SalesQuote? @relation(fields:[quoteId],references:[id]) items SalesOrderItem[] productionOrders ProductionOrder[] shipments Shipment[] @@index([customerId,status]) }
-model SalesOrderItem { id String @id @default(cuid()) salesOrderId String productId String description String quantity Decimal @db.Decimal(14,3) unitPrice Decimal @db.Decimal(14,4) subtotal Decimal @db.Decimal(14,2) tax Decimal @db.Decimal(14,2) total Decimal @db.Decimal(14,2) salesOrder SalesOrder @relation(fields:[salesOrderId],references:[id],onDelete:Cascade) product CommercialProduct @relation(fields:[productId],references:[id]) @@index([salesOrderId]) }
-model Shipment { id String @id @default(cuid()) folio String @unique salesOrderId String customerId String status ShipmentStatus @default(DRAFT) shippedAt DateTime? carrier String? vehiclePlate String? receivedBy String? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt salesOrder SalesOrder @relation(fields:[salesOrderId],references:[id]) customer Customer @relation(fields:[customerId],references:[id]) items ShipmentItem[] @@index([salesOrderId,status]) }
-model ShipmentItem { id String @id @default(cuid()) shipmentId String productId String lotId String? quantity Decimal @db.Decimal(14,3) shipment Shipment @relation(fields:[shipmentId],references:[id],onDelete:Cascade) product CommercialProduct @relation(fields:[productId],references:[id]) lot TanneryLot? @relation(fields:[lotId],references:[id]) @@index([shipmentId]) @@index([lotId]) }
+model RawHideReceiptItem {
+  id String @id @default(cuid())
+  receiptId String
+  animalType String
+  preservation String?
+  qualityGrade String?
+  hidesQuantity Int
+  weightKg Decimal @db.Decimal(12,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  notes String?
+  receipt RawHideReceipt @relation(fields:[receiptId],references:[id],onDelete:Cascade)
+  @@index([receiptId])
+}
 
-// Phase 6: Purchasing and administration
-model PurchaseRequest { id String @id @default(cuid()) folio String @unique requester String? status PurchaseRequestStatus @default(DRAFT) requestedAt DateTime @default(now()) neededBy DateTime? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt items PurchaseRequestItem[] purchaseOrderId String? @@index([status,neededBy]) }
-model PurchaseRequestItem { id String @id @default(cuid()) requestId String description String chemicalId String? quantity Decimal @db.Decimal(14,3) unit String @default("kg") estimatedUnitCost Decimal? @db.Decimal(14,4) request PurchaseRequest @relation(fields:[requestId],references:[id],onDelete:Cascade) @@index([requestId]) @@index([chemicalId]) }
-model PurchaseOrder { id String @id @default(cuid()) folio String @unique supplierId String status PurchaseOrderStatus @default(DRAFT) orderedAt DateTime @default(now()) expectedAt DateTime? subtotal Decimal @default(0) @db.Decimal(14,2) tax Decimal @default(0) @db.Decimal(14,2) total Decimal @default(0) @db.Decimal(14,2) notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt items PurchaseOrderItem[] receipts PurchaseReceipt[] invoices SupplierInvoice[] @@index([supplierId,status]) }
-model PurchaseOrderItem { id String @id @default(cuid()) purchaseOrderId String description String chemicalId String? quantity Decimal @db.Decimal(14,3) receivedQuantity Decimal @default(0) @db.Decimal(14,3) unit String @default("kg") unitCost Decimal @db.Decimal(14,4) taxRate Decimal @default(16) @db.Decimal(6,3) subtotal Decimal @db.Decimal(14,2) tax Decimal @db.Decimal(14,2) total Decimal @db.Decimal(14,2) purchaseOrder PurchaseOrder @relation(fields:[purchaseOrderId],references:[id],onDelete:Cascade) receiptItems PurchaseReceiptItem[] @@index([purchaseOrderId]) @@index([chemicalId]) }
-model PurchaseReceipt { id String @id @default(cuid()) folio String @unique purchaseOrderId String supplierId String receivedAt DateTime @default(now()) warehouseId String? reference String? notes String? createdAt DateTime @default(now()) purchaseOrder PurchaseOrder @relation(fields:[purchaseOrderId],references:[id]) items PurchaseReceiptItem[] @@index([purchaseOrderId,receivedAt]) }
-model PurchaseReceiptItem { id String @id @default(cuid()) receiptId String purchaseOrderItemId String quantity Decimal @db.Decimal(14,3) lotNumber String? expiresAt DateTime? receipt PurchaseReceipt @relation(fields:[receiptId],references:[id],onDelete:Cascade) purchaseOrderItem PurchaseOrderItem @relation(fields:[purchaseOrderItemId],references:[id]) @@index([receiptId]) }
-model SupplierInvoice { id String @id @default(cuid()) folio String @unique supplierId String purchaseOrderId String? externalUuid String? externalFolio String? issuedAt DateTime @default(now()) dueDate DateTime? subtotal Decimal @default(0) @db.Decimal(14,2) tax Decimal @default(0) @db.Decimal(14,2) total Decimal @db.Decimal(14,2) balance Decimal @db.Decimal(14,2) status SupplierInvoiceStatus @default(OPEN) xmlUrl String? pdfUrl String? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt purchaseOrder PurchaseOrder? @relation(fields:[purchaseOrderId],references:[id]) payments PaymentApplication[] @@index([supplierId,status,dueDate]) }
-model AccountReceivable { id String @id @default(cuid()) folio String @unique customerId String salesOrderId String? shipmentId String? externalUuid String? externalFolio String? issuedAt DateTime @default(now()) dueDate DateTime? total Decimal @db.Decimal(14,2) balance Decimal @db.Decimal(14,2) status ReceivableStatus @default(OPEN) xmlUrl String? pdfUrl String? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt payments PaymentApplication[] @@index([customerId,status,dueDate]) @@index([salesOrderId]) }
-model Payment { id String @id @default(cuid()) folio String @unique direction PaymentDirection method PaymentMethod amount Decimal @db.Decimal(14,2) paidAt DateTime @default(now()) reference String? bankAccount String? notes String? createdAt DateTime @default(now()) applications PaymentApplication[] @@index([direction,paidAt]) }
-model PaymentApplication { id String @id @default(cuid()) paymentId String supplierInvoiceId String? receivableId String? amount Decimal @db.Decimal(14,2) payment Payment @relation(fields:[paymentId],references:[id],onDelete:Cascade) supplierInvoice SupplierInvoice? @relation(fields:[supplierInvoiceId],references:[id]) receivable AccountReceivable? @relation(fields:[receivableId],references:[id]) @@index([paymentId]) @@index([supplierInvoiceId]) @@index([receivableId]) }
-model Expense { id String @id @default(cuid()) folio String @unique category String description String supplierId String? amount Decimal @db.Decimal(14,2) tax Decimal @default(0) @db.Decimal(14,2) occurredAt DateTime @default(now()) status ExpenseStatus @default(POSTED) paymentMethod PaymentMethod? reference String? notes String? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt @@index([category,occurredAt]) @@index([supplierId]) }
+model ProductionRoute {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  steps ProductionRouteStep[]
+  orders ProductionOrder[]
+  articles CommercialProduct[]
+}
+
+model ProductionRouteStep {
+  id String @id @default(cuid())
+  routeId String
+  processId String
+  sequence Int
+  estimatedMinutes Int?
+  preferredMachineType String?
+  required Boolean @default(true)
+  route ProductionRoute @relation(fields:[routeId],references:[id],onDelete:Cascade)
+  process ProcessCatalog @relation(fields:[processId],references:[id])
+  executions LotProcess[]
+  @@unique([routeId,sequence])
+  @@index([processId])
+}
+
+model ProductionOrder {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String?
+  routeId String?
+  salesOrderId String?
+  articleCode String?
+  targetColor String?
+  requestedHides Int?
+  requestedWeightKg Decimal? @db.Decimal(12,3)
+  dueDate DateTime?
+  status ProductionOrderStatus @default(DRAFT)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer? @relation(fields:[customerId],references:[id])
+  route ProductionRoute? @relation(fields:[routeId],references:[id])
+  salesOrder SalesOrder? @relation(fields:[salesOrderId],references:[id])
+  lots TanneryLot[]
+  executions LotProcess[]
+  @@index([status,dueDate])
+  @@index([routeId])
+  @@index([salesOrderId])
+}
+
+model TanneryLot {
+  id String @id @default(cuid())
+  folio String @unique
+  receiptId String?
+  parentLotId String?
+  productionOrderId String?
+  articleCode String?
+  animalType String
+  status LotStatus @default(RECEIVED)
+  currentProcessCode String?
+  initialHides Int
+  currentHides Int
+  initialWeightKg Decimal @db.Decimal(12,3)
+  currentWeightKg Decimal @db.Decimal(12,3)
+  color String?
+  qrToken String @unique @default(cuid())
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  receipt RawHideReceipt? @relation(fields:[receiptId],references:[id])
+  productionOrder ProductionOrder? @relation(fields:[productionOrderId],references:[id])
+  parentLot TanneryLot? @relation("LotHierarchy",fields:[parentLotId],references:[id])
+  childLots TanneryLot[] @relation("LotHierarchy")
+  sourceRelations LotRelation[] @relation("LotRelationParent")
+  targetRelations LotRelation[] @relation("LotRelationChild")
+  processes LotProcess[]
+  movements LotMovement[]
+  qualityInspections QualityInspection[]
+  shipmentItems ShipmentItem[]
+  costEntries LotCostEntry[]
+  costSnapshot LotCostSnapshot?
+  @@index([status])
+  @@index([receiptId])
+  @@index([productionOrderId])
+  @@index([parentLotId])
+}
+
+model LotRelation {
+  id String @id @default(cuid())
+  parentLotId String
+  childLotId String
+  relationType LotRelationType
+  hidesQuantity Int?
+  weightKg Decimal? @db.Decimal(12,3)
+  notes String?
+  createdAt DateTime @default(now())
+  parentLot TanneryLot @relation("LotRelationParent",fields:[parentLotId],references:[id],onDelete:Cascade)
+  childLot TanneryLot @relation("LotRelationChild",fields:[childLotId],references:[id],onDelete:Cascade)
+  @@unique([parentLotId,childLotId,relationType])
+  @@index([childLotId])
+}
+
+model ProcessCatalog {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  sequence Int
+  description String?
+  active Boolean @default(true)
+  requiresWeight Boolean @default(true)
+  requiresHides Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  executions LotProcess[]
+  routeSteps ProductionRouteStep[]
+  recipes Recipe[]
+  qualityInspections QualityInspection[]
+  @@index([sequence])
+}
+
+model LotProcess {
+  id String @id @default(cuid())
+  lotId String
+  processId String
+  machineId String?
+  routeStepId String?
+  productionOrderId String?
+  status ProcessExecutionStatus @default(PENDING)
+  startedAt DateTime?
+  completedAt DateTime?
+  inputHides Int?
+  outputHides Int?
+  inputWeightKg Decimal? @db.Decimal(12,3)
+  outputWeightKg Decimal? @db.Decimal(12,3)
+  temperatureC Decimal? @db.Decimal(6,2)
+  ph Decimal? @db.Decimal(5,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade)
+  process ProcessCatalog @relation(fields:[processId],references:[id])
+  machine Machine? @relation(fields:[machineId],references:[id])
+  routeStep ProductionRouteStep? @relation(fields:[routeStepId],references:[id])
+  productionOrder ProductionOrder? @relation(fields:[productionOrderId],references:[id])
+  chemicalConsumptions ProcessChemicalConsumption[]
+  qualityInspections QualityInspection[]
+  costEntries LotCostEntry[]
+  @@index([lotId,status])
+  @@index([processId,status])
+  @@index([machineId,status])
+  @@index([routeStepId])
+  @@index([productionOrderId])
+}
+
+model LotMovement {
+  id String @id @default(cuid())
+  lotId String
+  warehouseId String?
+  type MovementType
+  occurredAt DateTime @default(now())
+  hidesQuantity Int?
+  weightKg Decimal? @db.Decimal(12,3)
+  reference String?
+  notes String?
+  lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade)
+  warehouse Warehouse? @relation(fields:[warehouseId],references:[id])
+  @@index([lotId,occurredAt])
+  @@index([warehouseId,occurredAt])
+}
+
+model ChemicalProduct {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  category String?
+  unit String @default("kg")
+  minStock Decimal? @db.Decimal(14,3)
+  active Boolean @default(true)
+  safetyNotes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lots ChemicalLot[]
+  recipeItems RecipeItem[]
+  consumptions ProcessChemicalConsumption[]
+  movements ChemicalStockMovement[]
+}
+
+model ChemicalLot {
+  id String @id @default(cuid())
+  chemicalId String
+  warehouseId String
+  supplierId String?
+  lotNumber String
+  receivedAt DateTime @default(now())
+  expiresAt DateTime?
+  initialQuantity Decimal @db.Decimal(14,3)
+  currentQuantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  notes String?
+  chemical ChemicalProduct @relation(fields:[chemicalId],references:[id])
+  warehouse Warehouse @relation(fields:[warehouseId],references:[id])
+  supplier Supplier? @relation(fields:[supplierId],references:[id])
+  movements ChemicalStockMovement[]
+  consumptions ProcessChemicalConsumption[]
+  @@unique([chemicalId,warehouseId,lotNumber])
+  @@index([chemicalId,expiresAt])
+  @@index([warehouseId])
+}
+
+model ChemicalStockMovement {
+  id String @id @default(cuid())
+  chemicalId String
+  chemicalLotId String?
+  warehouseId String
+  type ChemicalMovementType
+  quantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  occurredAt DateTime @default(now())
+  reference String?
+  notes String?
+  chemical ChemicalProduct @relation(fields:[chemicalId],references:[id])
+  chemicalLot ChemicalLot? @relation(fields:[chemicalLotId],references:[id])
+  warehouse Warehouse @relation(fields:[warehouseId],references:[id])
+  @@index([chemicalId,occurredAt])
+  @@index([warehouseId,occurredAt])
+}
+
+model Recipe {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  processId String
+  version Int @default(1)
+  active Boolean @default(true)
+  effectiveFrom DateTime @default(now())
+  effectiveTo DateTime?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  process ProcessCatalog @relation(fields:[processId],references:[id])
+  items RecipeItem[]
+  @@index([processId,active])
+}
+
+model RecipeItem {
+  id String @id @default(cuid())
+  recipeId String
+  chemicalId String
+  sequence Int
+  basis RecipeBasis @default(WEIGHT_PERCENT)
+  quantity Decimal @db.Decimal(14,4)
+  tolerancePercent Decimal? @db.Decimal(8,3)
+  notes String?
+  recipe Recipe @relation(fields:[recipeId],references:[id],onDelete:Cascade)
+  chemical ChemicalProduct @relation(fields:[chemicalId],references:[id])
+  @@unique([recipeId,sequence])
+  @@index([chemicalId])
+}
+
+model ProcessChemicalConsumption {
+  id String @id @default(cuid())
+  lotProcessId String
+  chemicalId String
+  chemicalLotId String?
+  theoreticalQuantity Decimal? @db.Decimal(14,3)
+  actualQuantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  totalCost Decimal? @db.Decimal(14,4)
+  createdAt DateTime @default(now())
+  lotProcess LotProcess @relation(fields:[lotProcessId],references:[id],onDelete:Cascade)
+  chemical ChemicalProduct @relation(fields:[chemicalId],references:[id])
+  chemicalLot ChemicalLot? @relation(fields:[chemicalLotId],references:[id])
+  @@index([lotProcessId])
+  @@index([chemicalId])
+}
+
+model QualityDefectCatalog {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  category String?
+  defaultSeverity QualitySeverity @default(MEDIUM)
+  active Boolean @default(true)
+  description String?
+  findings QualityDefectFinding[]
+}
+
+model QualityInspection {
+  id String @id @default(cuid())
+  folio String @unique
+  lotId String
+  lotProcessId String?
+  processId String?
+  status QualityInspectionStatus @default(DRAFT)
+  disposition QualityDisposition?
+  grade String?
+  thicknessMm Decimal? @db.Decimal(8,3)
+  areaDm2 Decimal? @db.Decimal(14,3)
+  colorResult String?
+  visualResult String?
+  tensileResult String?
+  adhesionResult String?
+  flexResult String?
+  inspectorName String?
+  notes String?
+  inspectedAt DateTime @default(now())
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade)
+  lotProcess LotProcess? @relation(fields:[lotProcessId],references:[id])
+  process ProcessCatalog? @relation(fields:[processId],references:[id])
+  defects QualityDefectFinding[]
+  evidence QualityEvidence[]
+  @@index([lotId,inspectedAt])
+  @@index([status])
+}
+
+model QualityDefectFinding {
+  id String @id @default(cuid())
+  inspectionId String
+  defectId String
+  severity QualitySeverity
+  affectedHides Int?
+  affectedAreaDm2 Decimal? @db.Decimal(14,3)
+  notes String?
+  inspection QualityInspection @relation(fields:[inspectionId],references:[id],onDelete:Cascade)
+  defect QualityDefectCatalog @relation(fields:[defectId],references:[id])
+  @@index([inspectionId])
+  @@index([defectId])
+}
+
+model QualityEvidence {
+  id String @id @default(cuid())
+  inspectionId String
+  fileUrl String
+  fileName String?
+  mimeType String?
+  notes String?
+  createdAt DateTime @default(now())
+  inspection QualityInspection @relation(fields:[inspectionId],references:[id],onDelete:Cascade)
+  @@index([inspectionId])
+}
+
+model CommercialProduct {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  unit CommercialUnit @default(DM2)
+  basePrice Decimal @db.Decimal(14,4)
+  taxRate Decimal @default(16) @db.Decimal(6,3)
+  routeId String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  route ProductionRoute? @relation(fields:[routeId],references:[id])
+  quoteItems SalesQuoteItem[]
+  orderItems SalesOrderItem[]
+  shipmentItems ShipmentItem[]
+  @@index([active])
+}
+
+model SalesQuote {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String
+  status QuoteStatus @default(DRAFT)
+  validUntil DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @default(0) @db.Decimal(14,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer @relation(fields:[customerId],references:[id])
+  items SalesQuoteItem[]
+  salesOrder SalesOrder?
+  @@index([customerId,status])
+}
+
+model SalesQuoteItem {
+  id String @id @default(cuid())
+  quoteId String
+  productId String
+  description String
+  quantity Decimal @db.Decimal(14,3)
+  unitPrice Decimal @db.Decimal(14,4)
+  subtotal Decimal @db.Decimal(14,2)
+  tax Decimal @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  quote SalesQuote @relation(fields:[quoteId],references:[id],onDelete:Cascade)
+  product CommercialProduct @relation(fields:[productId],references:[id])
+  @@index([quoteId])
+}
+
+model SalesOrder {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String
+  quoteId String? @unique
+  status SalesOrderStatus @default(DRAFT)
+  requestedDate DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @default(0) @db.Decimal(14,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer @relation(fields:[customerId],references:[id])
+  quote SalesQuote? @relation(fields:[quoteId],references:[id])
+  items SalesOrderItem[]
+  productionOrders ProductionOrder[]
+  shipments Shipment[]
+  receivables AccountReceivable[]
+  @@index([customerId,status])
+}
+
+model SalesOrderItem {
+  id String @id @default(cuid())
+  salesOrderId String
+  productId String
+  description String
+  quantity Decimal @db.Decimal(14,3)
+  unitPrice Decimal @db.Decimal(14,4)
+  subtotal Decimal @db.Decimal(14,2)
+  tax Decimal @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  salesOrder SalesOrder @relation(fields:[salesOrderId],references:[id],onDelete:Cascade)
+  product CommercialProduct @relation(fields:[productId],references:[id])
+  @@index([salesOrderId])
+}
+
+model Shipment {
+  id String @id @default(cuid())
+  folio String @unique
+  salesOrderId String
+  customerId String
+  status ShipmentStatus @default(DRAFT)
+  shippedAt DateTime?
+  carrier String?
+  vehiclePlate String?
+  receivedBy String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  salesOrder SalesOrder @relation(fields:[salesOrderId],references:[id])
+  customer Customer @relation(fields:[customerId],references:[id])
+  items ShipmentItem[]
+  receivables AccountReceivable[]
+  @@index([salesOrderId,status])
+}
+
+model ShipmentItem {
+  id String @id @default(cuid())
+  shipmentId String
+  productId String
+  lotId String?
+  quantity Decimal @db.Decimal(14,3)
+  shipment Shipment @relation(fields:[shipmentId],references:[id],onDelete:Cascade)
+  product CommercialProduct @relation(fields:[productId],references:[id])
+  lot TanneryLot? @relation(fields:[lotId],references:[id])
+  @@index([shipmentId])
+  @@index([lotId])
+}
+
+model PurchaseRequest {
+  id String @id @default(cuid())
+  folio String @unique
+  requester String?
+  status PurchaseRequestStatus @default(DRAFT)
+  requestedAt DateTime @default(now())
+  neededBy DateTime?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items PurchaseRequestItem[]
+  purchaseOrderId String?
+  @@index([status,neededBy])
+}
+
+model PurchaseRequestItem {
+  id String @id @default(cuid())
+  requestId String
+  description String
+  chemicalId String?
+  quantity Decimal @db.Decimal(14,3)
+  unit String @default("kg")
+  estimatedUnitCost Decimal? @db.Decimal(14,4)
+  request PurchaseRequest @relation(fields:[requestId],references:[id],onDelete:Cascade)
+  @@index([requestId])
+  @@index([chemicalId])
+}
+
+model PurchaseOrder {
+  id String @id @default(cuid())
+  folio String @unique
+  supplierId String
+  status PurchaseOrderStatus @default(DRAFT)
+  orderedAt DateTime @default(now())
+  expectedAt DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @default(0) @db.Decimal(14,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  supplier Supplier @relation(fields:[supplierId],references:[id])
+  items PurchaseOrderItem[]
+  receipts PurchaseReceipt[]
+  invoices SupplierInvoice[]
+  @@index([supplierId,status])
+}
+
+model PurchaseOrderItem {
+  id String @id @default(cuid())
+  purchaseOrderId String
+  description String
+  chemicalId String?
+  quantity Decimal @db.Decimal(14,3)
+  receivedQuantity Decimal @default(0) @db.Decimal(14,3)
+  unit String @default("kg")
+  unitCost Decimal @db.Decimal(14,4)
+  taxRate Decimal @default(16) @db.Decimal(6,3)
+  subtotal Decimal @db.Decimal(14,2)
+  tax Decimal @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  purchaseOrder PurchaseOrder @relation(fields:[purchaseOrderId],references:[id],onDelete:Cascade)
+  receiptItems PurchaseReceiptItem[]
+  @@index([purchaseOrderId])
+  @@index([chemicalId])
+}
+
+model PurchaseReceipt {
+  id String @id @default(cuid())
+  folio String @unique
+  purchaseOrderId String
+  supplierId String
+  receivedAt DateTime @default(now())
+  warehouseId String?
+  reference String?
+  notes String?
+  createdAt DateTime @default(now())
+  purchaseOrder PurchaseOrder @relation(fields:[purchaseOrderId],references:[id])
+  items PurchaseReceiptItem[]
+  @@index([purchaseOrderId,receivedAt])
+}
+
+model PurchaseReceiptItem {
+  id String @id @default(cuid())
+  receiptId String
+  purchaseOrderItemId String
+  quantity Decimal @db.Decimal(14,3)
+  lotNumber String?
+  expiresAt DateTime?
+  receipt PurchaseReceipt @relation(fields:[receiptId],references:[id],onDelete:Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields:[purchaseOrderItemId],references:[id])
+  @@index([receiptId])
+}
+
+model SupplierInvoice {
+  id String @id @default(cuid())
+  folio String @unique
+  supplierId String
+  purchaseOrderId String?
+  externalUuid String?
+  externalFolio String?
+  issuedAt DateTime @default(now())
+  dueDate DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  balance Decimal @db.Decimal(14,2)
+  status SupplierInvoiceStatus @default(OPEN)
+  xmlUrl String?
+  pdfUrl String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  supplier Supplier @relation(fields:[supplierId],references:[id])
+  purchaseOrder PurchaseOrder? @relation(fields:[purchaseOrderId],references:[id])
+  payments PaymentApplication[]
+  @@index([supplierId,status,dueDate])
+}
+
+model AccountReceivable {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String
+  salesOrderId String?
+  shipmentId String?
+  externalUuid String?
+  externalFolio String?
+  issuedAt DateTime @default(now())
+  dueDate DateTime?
+  total Decimal @db.Decimal(14,2)
+  balance Decimal @db.Decimal(14,2)
+  status ReceivableStatus @default(OPEN)
+  xmlUrl String?
+  pdfUrl String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer @relation(fields:[customerId],references:[id])
+  salesOrder SalesOrder? @relation(fields:[salesOrderId],references:[id])
+  shipment Shipment? @relation(fields:[shipmentId],references:[id])
+  payments PaymentApplication[]
+  @@index([customerId,status,dueDate])
+  @@index([salesOrderId])
+}
+
+model Payment {
+  id String @id @default(cuid())
+  folio String @unique
+  direction PaymentDirection
+  method PaymentMethod
+  amount Decimal @db.Decimal(14,2)
+  paidAt DateTime @default(now())
+  reference String?
+  bankAccount String?
+  notes String?
+  createdAt DateTime @default(now())
+  applications PaymentApplication[]
+  @@index([direction,paidAt])
+}
+
+model PaymentApplication {
+  id String @id @default(cuid())
+  paymentId String
+  supplierInvoiceId String?
+  receivableId String?
+  amount Decimal @db.Decimal(14,2)
+  payment Payment @relation(fields:[paymentId],references:[id],onDelete:Cascade)
+  supplierInvoice SupplierInvoice? @relation(fields:[supplierInvoiceId],references:[id])
+  receivable AccountReceivable? @relation(fields:[receivableId],references:[id])
+  @@index([paymentId])
+  @@index([supplierInvoiceId])
+  @@index([receivableId])
+}
+
+model Expense {
+  id String @id @default(cuid())
+  folio String @unique
+  category String
+  description String
+  supplierId String?
+  amount Decimal @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  occurredAt DateTime @default(now())
+  status ExpenseStatus @default(POSTED)
+  paymentMethod PaymentMethod?
+  reference String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  supplier Supplier? @relation(fields:[supplierId],references:[id])
+  @@index([category,occurredAt])
+  @@index([supplierId])
+}
+
+model LotCostEntry {
+  id String @id @default(cuid())
+  lotId String
+  lotProcessId String?
+  category CostCategory
+  description String
+  quantity Decimal @default(1) @db.Decimal(14,4)
+  unit String @default("servicio")
+  unitCost Decimal @db.Decimal(14,4)
+  totalCost Decimal @db.Decimal(14,4)
+  sourceType String?
+  sourceId String?
+  occurredAt DateTime @default(now())
+  notes String?
+  createdAt DateTime @default(now())
+  lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade)
+  lotProcess LotProcess? @relation(fields:[lotProcessId],references:[id])
+  @@index([lotId,category])
+  @@index([lotProcessId])
+}
+
+model LotCostSnapshot {
+  id String @id @default(cuid())
+  lotId String @unique
+  rawHideCost Decimal @default(0) @db.Decimal(16,4)
+  chemicalCost Decimal @default(0) @db.Decimal(16,4)
+  laborCost Decimal @default(0) @db.Decimal(16,4)
+  waterCost Decimal @default(0) @db.Decimal(16,4)
+  energyCost Decimal @default(0) @db.Decimal(16,4)
+  machineCost Decimal @default(0) @db.Decimal(16,4)
+  reworkCost Decimal @default(0) @db.Decimal(16,4)
+  overheadCost Decimal @default(0) @db.Decimal(16,4)
+  otherCost Decimal @default(0) @db.Decimal(16,4)
+  totalCost Decimal @default(0) @db.Decimal(16,4)
+  outputHides Int?
+  outputWeightKg Decimal? @db.Decimal(14,3)
+  outputAreaDm2 Decimal? @db.Decimal(14,3)
+  costPerHide Decimal? @db.Decimal(16,4)
+  costPerKg Decimal? @db.Decimal(16,4)
+  costPerDm2 Decimal? @db.Decimal(16,6)
+  calculatedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lot TanneryLot @relation(fields:[lotId],references:[id],onDelete:Cascade)
+}
+
+model AccountingSyncQueue {
+  id String @id @default(cuid())
+  entityType AccountingEntityType
+  entityId String
+  status AccountingSyncStatus @default(PENDING)
+  externalSystem String @default("CONTPAQI")
+  externalId String?
+  externalFolio String?
+  payloadJson Json?
+  errorMessage String?
+  attempts Int @default(0)
+  queuedAt DateTime @default(now())
+  processedAt DateTime?
+  reconciledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status,queuedAt])
+  @@index([entityType,entityId])
+}
