@@ -15,6 +15,8 @@ enum ProductionOrderStatus { DRAFT RELEASED IN_PROGRESS COMPLETED CANCELLED }
 enum MachineStatus { AVAILABLE IN_USE MAINTENANCE INACTIVE }
 enum LotRelationType { SPLIT MERGE REPROCESS TRANSFORM }
 enum MovementType { RECEIPT TRANSFER PROCESS_IN PROCESS_OUT SPLIT MERGE ADJUSTMENT REJECTION FINISHED_GOODS }
+enum ChemicalMovementType { RECEIPT CONSUMPTION ADJUSTMENT TRANSFER_IN TRANSFER_OUT RETURN }
+enum RecipeBasis { WEIGHT_PERCENT FIXED_QUANTITY }
 
 model User {
   id String @id @default(cuid())
@@ -53,6 +55,7 @@ model Supplier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   receipts RawHideReceipt[]
+  chemicalLots ChemicalLot[]
 }
 
 model Customer {
@@ -77,6 +80,8 @@ model Warehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   lotMovements LotMovement[]
+  chemicalLots ChemicalLot[]
+  chemicalMovements ChemicalStockMovement[]
 }
 
 model Machine {
@@ -236,6 +241,7 @@ model ProcessCatalog {
   updatedAt DateTime @updatedAt
   executions LotProcess[]
   routeSteps ProductionRouteStep[]
+  recipes Recipe[]
   @@index([sequence])
 }
 
@@ -263,6 +269,7 @@ model LotProcess {
   machine Machine? @relation(fields: [machineId], references: [id])
   routeStep ProductionRouteStep? @relation(fields: [routeStepId], references: [id])
   productionOrder ProductionOrder? @relation(fields: [productionOrderId], references: [id])
+  chemicalConsumptions ProcessChemicalConsumption[]
   @@index([lotId, status])
   @@index([processId, status])
   @@index([machineId, status])
@@ -284,4 +291,110 @@ model LotMovement {
   warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
   @@index([lotId, occurredAt])
   @@index([warehouseId, occurredAt])
+}
+
+model ChemicalProduct {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  category String?
+  unit String @default("kg")
+  minStock Decimal? @db.Decimal(14,3)
+  active Boolean @default(true)
+  safetyNotes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lots ChemicalLot[]
+  recipeItems RecipeItem[]
+  consumptions ProcessChemicalConsumption[]
+  movements ChemicalStockMovement[]
+}
+
+model ChemicalLot {
+  id String @id @default(cuid())
+  chemicalId String
+  warehouseId String
+  supplierId String?
+  lotNumber String
+  receivedAt DateTime @default(now())
+  expiresAt DateTime?
+  initialQuantity Decimal @db.Decimal(14,3)
+  currentQuantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  notes String?
+  chemical ChemicalProduct @relation(fields: [chemicalId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  movements ChemicalStockMovement[]
+  consumptions ProcessChemicalConsumption[]
+  @@unique([chemicalId, warehouseId, lotNumber])
+  @@index([chemicalId, expiresAt])
+  @@index([warehouseId])
+}
+
+model ChemicalStockMovement {
+  id String @id @default(cuid())
+  chemicalId String
+  chemicalLotId String?
+  warehouseId String
+  type ChemicalMovementType
+  quantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  occurredAt DateTime @default(now())
+  reference String?
+  notes String?
+  chemical ChemicalProduct @relation(fields: [chemicalId], references: [id])
+  chemicalLot ChemicalLot? @relation(fields: [chemicalLotId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  @@index([chemicalId, occurredAt])
+  @@index([warehouseId, occurredAt])
+}
+
+model Recipe {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  processId String
+  version Int @default(1)
+  active Boolean @default(true)
+  effectiveFrom DateTime @default(now())
+  effectiveTo DateTime?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  process ProcessCatalog @relation(fields: [processId], references: [id])
+  items RecipeItem[]
+  @@index([processId, active])
+}
+
+model RecipeItem {
+  id String @id @default(cuid())
+  recipeId String
+  chemicalId String
+  sequence Int
+  basis RecipeBasis @default(WEIGHT_PERCENT)
+  quantity Decimal @db.Decimal(14,4)
+  tolerancePercent Decimal? @db.Decimal(8,3)
+  notes String?
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  chemical ChemicalProduct @relation(fields: [chemicalId], references: [id])
+  @@unique([recipeId, sequence])
+  @@index([chemicalId])
+}
+
+model ProcessChemicalConsumption {
+  id String @id @default(cuid())
+  lotProcessId String
+  chemicalId String
+  chemicalLotId String?
+  theoreticalQuantity Decimal? @db.Decimal(14,3)
+  actualQuantity Decimal @db.Decimal(14,3)
+  unitCost Decimal? @db.Decimal(14,4)
+  totalCost Decimal? @db.Decimal(14,4)
+  createdAt DateTime @default(now())
+  lotProcess LotProcess @relation(fields: [lotProcessId], references: [id], onDelete: Cascade)
+  chemical ChemicalProduct @relation(fields: [chemicalId], references: [id])
+  chemicalLot ChemicalLot? @relation(fields: [chemicalLotId], references: [id])
+  @@index([lotProcessId])
+  @@index([chemicalId])
 }
