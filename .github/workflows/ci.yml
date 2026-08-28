@@ -9,12 +9,27 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: teneria
+          POSTGRES_PASSWORD: teneria_dev
+          POSTGRES_DB: teneria
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U teneria -d teneria"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     env:
-      DATABASE_URL: postgresql://teneria:teneria_dev@localhost:5434/teneria?schema=public
+      DATABASE_URL: postgresql://teneria:teneria_dev@localhost:5432/teneria?schema=public
       AUTH_SECRET: ci-only-secret-value-with-at-least-32-characters
       AUTH_BOOTSTRAP_EMAIL: admin@teneria.local
       AUTH_BOOTSTRAP_PASSWORD: ci-only-password-12345
+      AUTH_BOOTSTRAP_NAME: CI Administrator
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,6 +51,16 @@ jobs:
         run: |
           set -o pipefail
           npx tsc --noEmit 2>&1 | tee typescript.log
+      - name: Prepare integration database
+        if: success()
+        run: |
+          npx prisma db push --skip-generate
+          npm run db:seed
+      - name: PostgreSQL integration smoke
+        if: success()
+        run: |
+          set -o pipefail
+          npm run test:integration 2>&1 | tee integration.log
       - name: Upload validation logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,4 +69,5 @@ jobs:
           path: |
             prisma-validate.log
             typescript.log
+            integration.log
           if-no-files-found: ignore
