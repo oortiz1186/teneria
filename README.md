@@ -9,8 +9,8 @@ Estado: completadas en su alcance inicial.
 
 Incluyen recepción/lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración, costos/contabilidad, dashboard ejecutivo, operación de piso y auditoría operacional.
 
-### Endurecimiento para producción — Etapa 1
-Estado: en progreso, primera pasada implementada.
+### Endurecimiento para producción — Etapa 2
+Estado: en progreso.
 
 Implementado:
 
@@ -19,20 +19,23 @@ Implementado:
 - cookie de sesión `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
 - duración de sesión de 8 horas;
 - autorización de rutas por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
-- helpers de servidor `requireUser` y `requireRole` para proteger acciones sensibles;
-- ventas protegidas por rol y validaciones adicionales Pedido → Lote → Remisión;
-- compras protegidas por rol;
-- recepción de químicos con validación de cantidades pendientes y almacén obligatorio;
-- movimientos de inventario enlazados al lote químico recibido;
-- finanzas protegidas por rol;
-- validaciones de cliente/pedido/remisión en CxC;
-- bloqueo de pagos/cobros sobre documentos cerrados;
-- folios resistentes a colisión basados en fecha + UUID para nuevos flujos endurecidos;
-- pantalla de login y cierre de sesión;
-- administrador inicial configurable sólo por variables de entorno;
-- CI de GitHub Actions para validar Prisma y TypeScript en cada push/PR.
-
-La autenticación inicial usa un administrador bootstrap configurado en el entorno. No existe una contraseña fija dentro del repositorio. La siguiente evolución será administrar credenciales individuales por usuario, cambio de contraseña, recuperación y auditoría de sesión.
+- helpers `requireUser` y `requireRole` para server actions;
+- credenciales individuales almacenadas como hash bcrypt en PostgreSQL;
+- `sessionVersion` por usuario para invalidar sesiones tras cambios de seguridad;
+- fecha del último acceso;
+- administración de usuarios desde `/configuracion`;
+- alta de usuarios con uno o varios roles;
+- activación/desactivación de cuentas;
+- cambio de roles con revocación de sesiones anteriores;
+- restablecimiento de contraseña con revocación de sesiones anteriores;
+- bloqueo para impedir que un administrador se desactive a sí mismo desde la pantalla de usuarios;
+- auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
+- `/auditoria` ahora muestra auditoría real por usuario además de la cronología operacional;
+- ventas, compras y finanzas protegidas por rol y con validaciones reforzadas;
+- compuerta de calidad: finalizar QUALITY ya no libera producto terminado automáticamente; la liberación ocurre tras aprobación explícita;
+- seed de ruta productiva seguro: ya no elimina todos los pasos al ejecutarse;
+- folios resistentes a colisión en los flujos endurecidos;
+- CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript.
 
 ## Requisitos
 
@@ -53,26 +56,28 @@ AUTH_BOOTSTRAP_PASSWORD="una-contrasena-unica-de-minimo-12-caracteres"
 AUTH_BOOTSTRAP_NAME="Administrador"
 ```
 
-No uses los valores de ejemplo en producción y nunca subas `.env` al repositorio.
+`AUTH_BOOTSTRAP_PASSWORD` se usa durante el seed para crear/actualizar el administrador inicial y se almacena en PostgreSQL únicamente como hash bcrypt. No uses los valores de ejemplo en producción y nunca subas `.env` al repositorio.
 
 ## Actualizar una instalación existente
+
+Esta etapa sí modifica el esquema de Prisma:
 
 ```bash
 git pull
 npm install
 npm run db:generate
+npm run db:migrate -- --name hardening_users_audit
 npm run db:seed
 npm run dev
 ```
 
-Si todavía no aplicaste las migraciones de las fases anteriores, ejecuta también las migraciones pendientes antes del seed.
-
 Abrir:
 
 - `http://localhost:3000/login` — Inicio de sesión
+- `http://localhost:3000/configuracion` — Usuarios y roles
+- `http://localhost:3000/auditoria` — Auditoría por usuario + cronología operacional
 - `http://localhost:3000` — Dashboard ejecutivo
 - `http://localhost:3000/operacion` — Piso / operación
-- `http://localhost:3000/auditoria` — Auditoría operacional
 - `http://localhost:3000/costos` — Costos y margen
 
 ## Roles
@@ -85,7 +90,7 @@ Abrir:
 - `PURCHASING`: requisiciones, órdenes de compra y recepción.
 - `FINANCE`: CxC, CxP, pagos, gastos y costos.
 
-El usuario administrador bootstrap recibe el rol `ADMIN` al ejecutar `npm run db:seed`.
+El administrador bootstrap recibe `ADMIN` al ejecutar `npm run db:seed`. Después puedes crear cuentas individuales desde Configuración.
 
 ## Flujo integral actual
 
@@ -97,13 +102,13 @@ Requisición → Orden de compra → Recepción → Inventario → Factura prove
 
 ## Próximos pasos de endurecimiento
 
-1. credenciales individuales con hash por usuario y administración de usuarios;
-2. auditoría before/after con usuario, IP y origen;
-3. proteger todas las server actions restantes con `requireRole`;
-4. reemplazar los folios timestamp restantes por el generador robusto;
-5. pruebas de concurrencia en inventario, lotes, pagos y procesos;
-6. órdenes de mantenimiento preventivo/correctivo y refacciones;
-7. almacenamiento real de fotografías/PDF/XML;
-8. PWA/offline para piso;
-9. worker Windows para CONTPAQi;
-10. backups, monitoreo y despliegue productivo.
+1. ampliar `AuditLog` a todas las acciones operativas críticas, no sólo seguridad/usuarios;
+2. proteger las server actions restantes con `requireRole`;
+3. reemplazar los folios timestamp restantes por el generador robusto;
+4. concurrencia transaccional en inventario químico, pagos y procesos;
+5. endurecer división/fusión de lotes y estados terminales;
+6. cambio de contraseña por el propio usuario y recuperación controlada;
+7. órdenes de mantenimiento preventivo/correctivo y refacciones;
+8. almacenamiento real de fotografías/PDF/XML;
+9. PWA/offline para piso;
+10. worker Windows para CONTPAQi, backups, monitoreo y despliegue productivo.
