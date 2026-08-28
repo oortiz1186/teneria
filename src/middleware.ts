@@ -31,6 +31,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (session.mustChangePassword && path !== "/cuenta" && !path.startsWith("/cuenta/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/cuenta";
+    url.search = "?required=1";
+    return NextResponse.redirect(url);
+  }
+
   const rule = roleRules.find(r => path === r.prefix || path.startsWith(`${r.prefix}/`));
   if (rule && !session.roles.includes("ADMIN") && !rule.roles.some(role => session.roles.includes(role))) {
     const url = request.nextUrl.clone();
