@@ -49,17 +49,36 @@ async function main() {
     });
   }
 
-  await prisma.warehouse.upsert({
-    where: { code: "MP" },
-    update: {},
-    create: { code: "MP", name: "Materia prima" }
-  });
+  const warehouses = [
+    ["MP", "Materia prima"],
+    ["WIP", "Producción / proceso"],
+    ["PT", "Producto terminado"]
+  ];
 
-  await prisma.warehouse.upsert({
-    where: { code: "PT" },
-    update: {},
-    create: { code: "PT", name: "Producto terminado" }
-  });
+  for (const [code, name] of warehouses) {
+    await prisma.warehouse.upsert({
+      where: { code },
+      update: { name },
+      create: { code, name }
+    });
+  }
+
+  const machines = [
+    ["BOM-01", "Bombo 01", "Bombo", 2500],
+    ["BOM-02", "Bombo 02", "Bombo", 2500],
+    ["BOM-03", "Bombo 03", "Bombo", 3500],
+    ["DESC-01", "Descarnadora 01", "Descarnadora", 1500],
+    ["DIV-01", "Divididora 01", "Divididora", 1200],
+    ["REB-01", "Rebajadora 01", "Rebajadora", 1200]
+  ];
+
+  for (const [code, name, type, capacityKg] of machines) {
+    await prisma.machine.upsert({
+      where: { code: String(code) },
+      update: { name: String(name), type: String(type), capacityKg: Number(capacityKg) },
+      create: { code: String(code), name: String(name), type: String(type), capacityKg: Number(capacityKg) }
+    });
+  }
 }
 
 main()
