@@ -27,26 +27,35 @@ Incluye inspecciones por lote/proceso, clasificación, espesor, área, resultado
 ### Fase 5 — Comercial
 Estado: completada en su alcance inicial.
 
+Incluye clientes, artículos comerciales, precios, cotizaciones, pedidos, generación automática de órdenes de producción, remisiones y trazabilidad Pedido → Producción → Lote → Entrega.
+
+### Fase 6 — Compras y administración
+Estado: completada en su alcance inicial.
+
 Implementado:
 
-- alta rápida de clientes;
-- catálogo de artículos/piel comercial;
-- unidad comercial por pieza, kg, dm² o ft²;
-- precio base e IVA configurable por artículo;
-- asociación de artículo con ruta de producción;
-- cotizaciones con vigencia, subtotal, impuestos y total;
-- estados de cotización;
-- conversión de cotización aceptada a pedido;
-- pedidos comerciales;
-- confirmación de pedido;
-- generación automática de órdenes de producción desde el pedido;
-- relación Pedido → Orden de Producción → Lote;
-- remisiones de lotes terminados/liberados;
-- trazabilidad del lote entregado al cliente;
-- historial de remisiones;
-- estructura preparada para integración fiscal posterior.
+- requisiciones de compra;
+- partidas con cantidad, unidad y costo estimado;
+- órdenes de compra por proveedor;
+- impuestos y totales de OC;
+- recepción parcial o total contra OC;
+- control de cantidad pedida vs recibida;
+- creación automática de lote químico al recibir materiales químicos;
+- movimiento automático de entrada a inventario;
+- facturas de proveedor;
+- referencia a folio/UUID fiscal externo;
+- cuentas por pagar con saldo y vencimiento;
+- cuentas por cobrar con saldo y vencimiento;
+- relación opcional de CxC con pedido y remisión;
+- cobros parciales o totales;
+- pagos parciales o totales a proveedor;
+- aplicación de pagos a documentos;
+- métodos de pago: efectivo, transferencia, tarjeta, cheque y otros;
+- gastos administrativos/operativos por categoría;
+- panel financiero con CxC, CxP, gastos y movimientos recientes;
+- estructura preparada para sincronización posterior con CONTPAQi.
 
-La facturación CFDI no se timbra directamente desde esta fase. El ERP conservará la operación comercial y posteriormente se integrará con CONTPAQi para timbrado, UUID, XML/PDF, cancelaciones, pagos y conciliación fiscal.
+Los documentos fiscales siguen siendo referencias operativas dentro del ERP. El timbrado, cancelación, XML/PDF y conciliación fiscal se integrarán posteriormente con CONTPAQi.
 
 ## Requisitos
 
@@ -60,7 +69,7 @@ La facturación CFDI no se timbra directamente desde esta fase. El ERP conservar
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase5_comercial
+npm run db:migrate -- --name fase6_compras_administracion
 npm run db:seed
 npm run dev
 ```
@@ -69,41 +78,44 @@ Abrir:
 
 http://localhost:3000
 
+Módulos principales de esta fase:
+
+- `/compras`
+- `/finanzas`
+
 Configurar en `.env` la URL pública usada por los QR cuando el sistema se despliegue:
 
 ```env
 NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
 ```
 
-## Flujo actual
+## Flujo operativo actual
 
-Cliente → Cotización → Pedido → Orden de producción → Lote → Ruta/Proceso → Receta/Consumo químico → Calidad → Producto terminado → Remisión.
+Compra:
+
+Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
+
+Venta:
+
+Cliente → Cotización → Pedido → Producción → Lote → Calidad → Remisión → CxC → Cobro.
 
 ## Roadmap
 
-### Fase 6 — Compras y administración
-- requisiciones
-- órdenes de compra
-- recepción contra OC
-- facturas de proveedor
-- CxP
-- CxC
-- pagos y cobranza
-- gastos
-- bancos/caja
-
 ### Fase 7 — Costos y contabilidad
 - costo integral por lote
-- piel
-- químicos
+- costo de piel de origen
+- costo químico real
 - mano de obra
-- agua/energía
-- merma/reproceso
+- agua y energía
+- maquinaria/proceso
+- merma y reproceso
+- distribución de gastos indirectos
+- costo por dm²/kg/pieza
 - margen por pedido/cliente/artículo
 - interfaz con CONTPAQi Contabilidad
 
 ### Fase 8 — Indicadores y piso
-- dashboards
+- dashboards ejecutivos
 - interfaz optimizada para tablet/celular
 - alertas
 - auditoría
