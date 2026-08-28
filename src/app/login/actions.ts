@@ -30,7 +30,8 @@ export async function loginAction(formData: FormData) {
     email: user.email,
     name: user.name,
     roles: user.roles.map(r => r.role.code),
-    sessionVersion: user.sessionVersion
+    sessionVersion: user.sessionVersion,
+    mustChangePassword: user.mustChangePassword
   });
 
   const store = await cookies();
@@ -41,7 +42,7 @@ export async function loginAction(formData: FormData) {
     path: "/",
     maxAge: SESSION_MAX_AGE
   });
-  redirect("/");
+  redirect(user.mustChangePassword ? "/cuenta?required=1" : "/");
 }
 
 export async function logoutAction() {
