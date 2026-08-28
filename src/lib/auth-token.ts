@@ -9,6 +9,7 @@ export type SessionPayload = {
   name: string;
   roles: string[];
   sessionVersion: number;
+  mustChangePassword: boolean;
 };
 
 function getSecret() {
@@ -34,7 +35,8 @@ export async function verifySession(token?: string | null): Promise<SessionPaylo
       email: String(payload.email),
       name: String(payload.name),
       roles: Array.isArray(payload.roles) ? payload.roles.map(String) : [],
-      sessionVersion: Number(payload.sessionVersion ?? 0)
+      sessionVersion: Number(payload.sessionVersion ?? 0),
+      mustChangePassword: Boolean(payload.mustChangePassword ?? false)
     };
   } catch {
     return null;
