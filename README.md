@@ -32,30 +32,32 @@ Incluye clientes, artículos comerciales, precios, cotizaciones, pedidos, genera
 ### Fase 6 — Compras y administración
 Estado: completada en su alcance inicial.
 
+Incluye requisiciones, órdenes de compra, recepciones, inventario, facturas de proveedor, CxP, CxC, pagos, cobros, gastos y referencias fiscales externas.
+
+### Fase 7 — Costos y contabilidad
+Estado: completada en su alcance inicial.
+
 Implementado:
 
-- requisiciones de compra;
-- partidas con cantidad, unidad y costo estimado;
-- órdenes de compra por proveedor;
-- impuestos y totales de OC;
-- recepción parcial o total contra OC;
-- control de cantidad pedida vs recibida;
-- creación automática de lote químico al recibir materiales químicos;
-- movimiento automático de entrada a inventario;
-- facturas de proveedor;
-- referencia a folio/UUID fiscal externo;
-- cuentas por pagar con saldo y vencimiento;
-- cuentas por cobrar con saldo y vencimiento;
-- relación opcional de CxC con pedido y remisión;
-- cobros parciales o totales;
-- pagos parciales o totales a proveedor;
-- aplicación de pagos a documentos;
-- métodos de pago: efectivo, transferencia, tarjeta, cheque y otros;
-- gastos administrativos/operativos por categoría;
-- panel financiero con CxC, CxP, gastos y movimientos recientes;
-- estructura preparada para sincronización posterior con CONTPAQi.
+- costo integral por lote;
+- costo de piel de origen prorrateado por peso del lote;
+- costo químico real tomado de consumos registrados;
+- mano de obra asignable por lote/proceso;
+- agua y energía;
+- costo de maquinaria;
+- costo de reproceso;
+- gastos indirectos/overhead;
+- otros costos manuales auditables;
+- detalle por categoría de costo;
+- snapshot de costo recalculable por lote;
+- costo unitario por piel, kg y dm² cuando existe el dato de salida;
+- margen por pedido usando venta sin IVA contra costo de los lotes producidos;
+- cola de integración contable;
+- estados PENDING / PROCESSING / EXPORTED / ERROR / RECONCILED;
+- cola preparada para facturas de proveedor, CxC, pagos, gastos, pedidos y órdenes de compra;
+- estructura preparada para un worker/conector de CONTPAQi.
 
-Los documentos fiscales siguen siendo referencias operativas dentro del ERP. El timbrado, cancelación, XML/PDF y conciliación fiscal se integrarán posteriormente con CONTPAQi.
+El sistema no genera pólizas fiscales ni escribe directamente en CONTPAQi todavía. La cola de sincronización desacopla el ERP del futuro conector Windows/CONTPAQi y permite reintentos, auditoría y conciliación.
 
 ## Requisitos
 
@@ -69,7 +71,7 @@ Los documentos fiscales siguen siendo referencias operativas dentro del ERP. El 
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase6_compras_administracion
+npm run db:migrate -- --name fase7_costos_contabilidad
 npm run db:seed
 npm run dev
 ```
@@ -78,10 +80,11 @@ Abrir:
 
 http://localhost:3000
 
-Módulos principales de esta fase:
+Módulos principales:
 
 - `/compras`
 - `/finanzas`
+- `/costos`
 
 Configurar en `.env` la URL pública usada por los QR cuando el sistema se despliegue:
 
@@ -99,20 +102,15 @@ Venta:
 
 Cliente → Cotización → Pedido → Producción → Lote → Calidad → Remisión → CxC → Cobro.
 
-## Roadmap
+Costeo:
 
-### Fase 7 — Costos y contabilidad
-- costo integral por lote
-- costo de piel de origen
-- costo químico real
-- mano de obra
-- agua y energía
-- maquinaria/proceso
-- merma y reproceso
-- distribución de gastos indirectos
-- costo por dm²/kg/pieza
-- margen por pedido/cliente/artículo
-- interfaz con CONTPAQi Contabilidad
+Recepción de piel + Consumo químico + Mano de obra + Agua/Energía + Máquina + Reproceso + Indirectos → Costo integral del lote → Costo unitario → Margen por pedido.
+
+Contabilidad:
+
+Documento operativo → Cola de sincronización → Worker CONTPAQi (fase de integración posterior) → Estado exportado/conciliado.
+
+## Roadmap
 
 ### Fase 8 — Indicadores y piso
 - dashboards ejecutivos
@@ -121,3 +119,6 @@ Cliente → Cotización → Pedido → Producción → Lote → Calidad → Remi
 - auditoría
 - mantenimiento
 - indicadores ambientales
+- productividad por máquina/proceso
+- tiempos de ciclo y cuellos de botella
+- indicadores de calidad, inventario, ventas, cartera y margen
