@@ -1,0 +1,33 @@
+name: Teneria ERP CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql://teneria:teneria_dev@localhost:5434/teneria?schema=public
+      AUTH_SECRET: ci-only-secret-value-with-at-least-32-characters
+      AUTH_BOOTSTRAP_EMAIL: admin@teneria.local
+      AUTH_BOOTSTRAP_PASSWORD: ci-only-password-12345
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Validate Prisma
+        run: npx prisma validate
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: TypeScript
+        run: npx tsc --noEmit
