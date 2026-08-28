@@ -121,10 +121,15 @@ export async function startMaintenanceOrder(formData: FormData) {
     await tx.$queryRaw`SELECT id FROM "MaintenanceWorkOrder" WHERE id = ${orderId} FOR UPDATE`;
     const order = await tx.maintenanceWorkOrder.findUniqueOrThrow({ where: { id: orderId }, include: { machine: true } });
     if (!["OPEN", "SCHEDULED"].includes(order.status)) throw new Error("La orden ya no puede iniciarse.");
-    if (order.machine.status === "IN_USE") throw new Error("La máquina está en producción. Finaliza o libera su proceso antes de iniciar mantenimiento.");
-    if (order.machine.status === "INACTIVE") throw new Error("La máquina está inactiva.");
 
-    await tx.machine.update({ where: { id: order.machineId }, data: { status: "MAINTENANCE" } });
+    const claimed = await tx.machine.updateMany({
+      where: { id: order.machineId, active: true, status: "AVAILABLE" },
+      data: { status: "MAINTENANCE" }
+    });
+    if (claimed.count !== 1) {
+      throw new Error("La máquina ya no está disponible para mantenimiento. Puede estar en producción, inactiva o tomada por otra orden; actualiza la pantalla.");
+    }
+
     const updated = await tx.maintenanceWorkOrder.update({ where: { id: order.id }, data: { status: "IN_PROGRESS", startedAt: new Date() } });
     await writeAuditLogWithClient(tx, {
       actor,
@@ -162,6 +167,8 @@ export async function completeMaintenanceOrder(formData: FormData) {
     await tx.$queryRaw`SELECT id FROM "MaintenanceWorkOrder" WHERE id = ${data.orderId} FOR UPDATE`;
     const order = await tx.maintenanceWorkOrder.findUniqueOrThrow({ where: { id: data.orderId }, include: { machine: true, plan: true } });
     if (order.status !== "IN_PROGRESS") throw new Error("La orden debe estar en proceso para poder cerrarse.");
+    if (order.machine.status !== "MAINTENANCE") throw new Error("La máquina ya no está marcada en mantenimiento. Actualiza la pantalla antes de cerrar la orden.");
+
     const parts = await tx.maintenancePartUsage.aggregate({ where: { workOrderId: order.id }, _sum: { totalCost: true } });
     const partsCost = Number(parts._sum.totalCost ?? 0);
     const laborCost = data.laborCost ?? Number(order.laborCost);
@@ -171,7 +178,8 @@ export async function completeMaintenanceOrder(formData: FormData) {
       where: { id: order.id },
       data: { status: "COMPLETED", completedAt, resolution: data.resolution.trim(), downtimeMinutes: data.downtimeMinutes, laborCost, partsCost, totalCost, notes: data.notes ?? order.notes }
     });
-    await tx.machine.update({ where: { id: order.machineId }, data: { status: "AVAILABLE" } });
+    const released = await tx.machine.updateMany({ where: { id: order.machineId, status: "MAINTENANCE" }, data: { status: "AVAILABLE" } });
+    if (released.count !== 1) throw new Error("No fue posible liberar la máquina porque su estado cambió durante el cierre.");
 
     if (order.planId && order.plan) {
       const nextDueAt = order.plan.frequencyDays ? new Date(completedAt.getTime() + order.plan.frequencyDays * 86400000) : order.plan.nextDueAt;
