@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { createFolio } from "@/lib/folio";
+import { requireRole } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 
 const createOrderSchema = z.object({
   customerName: z.string().optional(),
@@ -21,12 +24,8 @@ const assignLotSchema = z.object({
   lotId: z.string().min(1)
 });
 
-function folio(prefix: string) {
-  const now = new Date();
-  return `${prefix}-${now.getFullYear()}-${String(now.getTime()).slice(-8)}`;
-}
-
 export async function createProductionOrder(formData: FormData) {
+  const actor = await requireRole(["PRODUCTION"]);
   const rawHides = formData.get("requestedHides");
   const rawWeight = formData.get("requestedWeightKg");
   const data = createOrderSchema.parse({
@@ -40,23 +39,22 @@ export async function createProductionOrder(formData: FormData) {
     notes: formData.get("notes") || undefined
   });
 
+  if (data.routeId) await prisma.productionRoute.findUniqueOrThrow({ where: { id: data.routeId } });
+
   let customerId: string | undefined;
   if (data.customerName?.trim()) {
-    const code = data.customerName.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 24);
-    const customer = await prisma.customer.upsert({
-      where: { code },
-      update: { name: data.customerName.trim() },
-      create: { code, name: data.customerName.trim() }
-    });
+    const name = data.customerName.trim();
+    const existing = await prisma.customer.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
+    const customer = existing ?? await prisma.customer.create({ data: { code: createFolio("CLI"), name } });
     customerId = customer.id;
   }
 
   const order = await prisma.productionOrder.create({
     data: {
-      folio: folio("OP"),
+      folio: createFolio("OP"),
       customerId,
-      articleCode: data.articleCode,
-      targetColor: data.targetColor,
+      articleCode: data.articleCode.trim(),
+      targetColor: data.targetColor?.trim() || null,
       requestedHides: data.requestedHides,
       requestedWeightKg: data.requestedWeightKg,
       routeId: data.routeId,
@@ -66,25 +64,47 @@ export async function createProductionOrder(formData: FormData) {
     }
   });
 
+  await writeAuditLog({
+    actor,
+    action: "PRODUCTION_ORDER_CREATED",
+    entityType: "ProductionOrder",
+    entityId: order.id,
+    after: {
+      folio: order.folio,
+      customerId: order.customerId,
+      articleCode: order.articleCode,
+      targetColor: order.targetColor,
+      requestedHides: order.requestedHides,
+      requestedWeightKg: order.requestedWeightKg,
+      routeId: order.routeId,
+      dueDate: order.dueDate,
+      status: order.status
+    }
+  });
+
   revalidatePath("/produccion/ordenes");
   redirect(`/produccion/ordenes/${order.id}`);
 }
 
 export async function assignLotToOrder(formData: FormData) {
+  const actor = await requireRole(["PRODUCTION"]);
   const data = assignLotSchema.parse({ orderId: formData.get("orderId"), lotId: formData.get("lotId") });
 
-  await prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "TanneryLot" WHERE id = ${data.lotId} FOR UPDATE`;
     const order = await tx.productionOrder.findUniqueOrThrow({
       where: { id: data.orderId },
       include: { route: { include: { steps: { include: { process: true }, orderBy: { sequence: "asc" } } } } }
     });
+    if (["COMPLETED", "CANCELLED"].includes(order.status)) throw new Error("La orden ya está cerrada y no admite lotes.");
+
     const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
+    if (["COMPLETED", "REJECTED", "CANCELLED", "CONSUMED"].includes(lot.status)) throw new Error("El lote está cerrado y no puede asignarse a una orden.");
+    const activeProcess = await tx.lotProcess.findFirst({ where: { lotId: lot.id, status: "IN_PROGRESS" } });
+    if (activeProcess) throw new Error("No se puede reasignar un lote mientras tenga un proceso activo.");
+    if (lot.productionOrderId && lot.productionOrderId !== order.id) throw new Error("El lote ya está asignado a otra orden de producción.");
 
-    if (lot.productionOrderId && lot.productionOrderId !== order.id) {
-      throw new Error("El lote ya está asignado a otra orden de producción.");
-    }
-
-    await tx.tanneryLot.update({
+    const updatedLot = await tx.tanneryLot.update({
       where: { id: lot.id },
       data: {
         productionOrderId: order.id,
@@ -96,21 +116,29 @@ export async function assignLotToOrder(formData: FormData) {
     if (order.route) {
       const existing = await tx.lotProcess.count({ where: { lotId: lot.id, productionOrderId: order.id } });
       if (existing === 0) {
-        for (const step of order.route.steps) {
-          await tx.lotProcess.create({
-            data: {
-              lotId: lot.id,
-              processId: step.processId,
-              routeStepId: step.id,
-              productionOrderId: order.id,
-              status: "PENDING"
-            }
-          });
-        }
+        await tx.lotProcess.createMany({
+          data: order.route.steps.map(step => ({
+            lotId: lot.id,
+            processId: step.processId,
+            routeStepId: step.id,
+            productionOrderId: order.id,
+            status: "PENDING" as const
+          }))
+        });
       }
     }
 
-    await tx.productionOrder.update({ where: { id: order.id }, data: { status: "IN_PROGRESS" } });
+    const updatedOrder = await tx.productionOrder.update({ where: { id: order.id }, data: { status: "IN_PROGRESS" } });
+    return { beforeLot: lot, afterLot: updatedLot, order: updatedOrder };
+  });
+
+  await writeAuditLog({
+    actor,
+    action: "LOT_ASSIGNED_TO_PRODUCTION_ORDER",
+    entityType: "TanneryLot",
+    entityId: data.lotId,
+    before: { productionOrderId: result.beforeLot.productionOrderId, articleCode: result.beforeLot.articleCode, color: result.beforeLot.color },
+    after: { productionOrderId: result.order.id, productionOrderFolio: result.order.folio, articleCode: result.afterLot.articleCode, color: result.afterLot.color }
   });
 
   revalidatePath(`/produccion/ordenes/${data.orderId}`);
