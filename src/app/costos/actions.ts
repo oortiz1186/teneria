@@ -3,11 +3,13 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireRole } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 
 const costEntrySchema = z.object({
   lotId: z.string().min(1),
   lotProcessId: z.string().optional(),
-  category: z.enum(["LABOR","WATER","ENERGY","MACHINE","REWORK","OVERHEAD","OTHER"]),
+  category: z.enum(["LABOR", "WATER", "ENERGY", "MACHINE", "REWORK", "OVERHEAD", "OTHER"]),
   description: z.string().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().min(1),
@@ -16,6 +18,7 @@ const costEntrySchema = z.object({
 });
 
 export async function createLotCostEntry(formData: FormData) {
+  const actor = await requireRole(["FINANCE"]);
   const data = costEntrySchema.parse({
     lotId: formData.get("lotId"),
     lotProcessId: formData.get("lotProcessId") || undefined,
@@ -27,7 +30,13 @@ export async function createLotCostEntry(formData: FormData) {
     notes: formData.get("notes") || undefined
   });
 
-  await prisma.lotCostEntry.create({
+  const lot = await prisma.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
+  if (data.lotProcessId) {
+    const process = await prisma.lotProcess.findUniqueOrThrow({ where: { id: data.lotProcessId } });
+    if (process.lotId !== data.lotId) throw new Error("El proceso seleccionado no pertenece al lote.");
+  }
+
+  const entry = await prisma.lotCostEntry.create({
     data: {
       ...data,
       lotProcessId: data.lotProcessId || null,
@@ -36,6 +45,23 @@ export async function createLotCostEntry(formData: FormData) {
   });
 
   await calculateLotCostById(data.lotId);
+  await writeAuditLog({
+    actor,
+    action: "LOT_COST_ENTRY_CREATED",
+    entityType: "LotCostEntry",
+    entityId: entry.id,
+    after: {
+      lotId: lot.id,
+      lotFolio: lot.folio,
+      lotProcessId: entry.lotProcessId,
+      category: entry.category,
+      description: entry.description,
+      quantity: entry.quantity,
+      unit: entry.unit,
+      unitCost: entry.unitCost,
+      totalCost: entry.totalCost
+    }
+  });
   revalidatePath("/costos");
 }
 
@@ -80,7 +106,7 @@ async function calculateLotCostById(lotId: string) {
   const outputWeightKg = Number(lot.currentWeightKg) || null;
   const outputAreaDm2 = lot.qualityInspections[0]?.areaDm2 ? Number(lot.qualityInspections[0].areaDm2) : null;
 
-  await prisma.lotCostSnapshot.upsert({
+  return prisma.lotCostSnapshot.upsert({
     where: { lotId: lot.id },
     update: {
       rawHideCost, chemicalCost, laborCost, waterCost, energyCost, machineCost,
@@ -103,26 +129,34 @@ async function calculateLotCostById(lotId: string) {
 }
 
 export async function recalculateLotCost(formData: FormData) {
+  const actor = await requireRole(["FINANCE"]);
   const lotId = z.string().min(1).parse(formData.get("lotId"));
-  await calculateLotCostById(lotId);
+  const lot = await prisma.tanneryLot.findUniqueOrThrow({ where: { id: lotId } });
+  const snapshot = await calculateLotCostById(lotId);
+  await writeAuditLog({ actor, action: "LOT_COST_RECALCULATED", entityType: "LotCostSnapshot", entityId: snapshot.id, after: { lotId, lotFolio: lot.folio, totalCost: snapshot.totalCost, calculatedAt: snapshot.calculatedAt } });
   revalidatePath("/costos");
 }
 
 export async function recalculateAllLotCosts() {
+  const actor = await requireRole(["FINANCE"]);
   const lots = await prisma.tanneryLot.findMany({ select: { id: true } });
   for (const lot of lots) await calculateLotCostById(lot.id);
+  await writeAuditLog({ actor, action: "ALL_LOT_COSTS_RECALCULATED", entityType: "LotCostSnapshot", after: { lotsProcessed: lots.length } });
   revalidatePath("/costos");
 }
 
 export async function queueAccountingSync(formData: FormData) {
-  const entityType = z.enum(["SUPPLIER_INVOICE","RECEIVABLE","PAYMENT","EXPENSE","SALES_ORDER","PURCHASE_ORDER"]).parse(formData.get("entityType"));
+  const actor = await requireRole(["FINANCE"]);
+  const entityType = z.enum(["SUPPLIER_INVOICE", "RECEIVABLE", "PAYMENT", "EXPENSE", "SALES_ORDER", "PURCHASE_ORDER"]).parse(formData.get("entityType"));
   const entityId = z.string().min(1).parse(formData.get("entityId"));
 
   const existing = await prisma.accountingSyncQueue.findFirst({
-    where: { entityType, entityId, status: { in: ["PENDING","PROCESSING"] } }
+    where: { entityType, entityId, status: { in: ["PENDING", "PROCESSING"] } }
   });
+
+  const queue = existing ?? await prisma.accountingSyncQueue.create({ data: { entityType, entityId } });
   if (!existing) {
-    await prisma.accountingSyncQueue.create({ data: { entityType, entityId } });
+    await writeAuditLog({ actor, action: "ACCOUNTING_SYNC_QUEUED", entityType: "AccountingSyncQueue", entityId: queue.id, after: { sourceEntityType: entityType, sourceEntityId: entityId, status: queue.status } });
   }
   revalidatePath("/costos");
   revalidatePath("/finanzas");
