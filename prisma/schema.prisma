@@ -20,6 +20,10 @@ enum RecipeBasis { WEIGHT_PERCENT FIXED_QUANTITY }
 enum QualityInspectionStatus { DRAFT APPROVED CONDITIONAL REJECTED REWORK_REQUIRED }
 enum QualitySeverity { LOW MEDIUM HIGH CRITICAL }
 enum QualityDisposition { RELEASE REWORK REJECT HOLD }
+enum QuoteStatus { DRAFT SENT ACCEPTED REJECTED EXPIRED CANCELLED }
+enum SalesOrderStatus { DRAFT CONFIRMED IN_PRODUCTION READY PARTIALLY_SHIPPED SHIPPED CANCELLED }
+enum ShipmentStatus { DRAFT ISSUED CANCELLED }
+enum CommercialUnit { PIECE KG DM2 FT2 }
 
 model User {
   id String @id @default(cuid())
@@ -72,6 +76,9 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   productionOrders ProductionOrder[]
+  quotes SalesQuote[]
+  salesOrders SalesOrder[]
+  shipments Shipment[]
 }
 
 model Warehouse {
@@ -144,6 +151,7 @@ model ProductionRoute {
   updatedAt DateTime @updatedAt
   steps ProductionRouteStep[]
   orders ProductionOrder[]
+  articles CommercialProduct[]
 }
 
 model ProductionRouteStep {
@@ -166,6 +174,7 @@ model ProductionOrder {
   folio String @unique
   customerId String?
   routeId String?
+  salesOrderId String?
   articleCode String?
   targetColor String?
   requestedHides Int?
@@ -177,10 +186,12 @@ model ProductionOrder {
   updatedAt DateTime @updatedAt
   customer Customer? @relation(fields: [customerId], references: [id])
   route ProductionRoute? @relation(fields: [routeId], references: [id])
+  salesOrder SalesOrder? @relation(fields: [salesOrderId], references: [id])
   lots TanneryLot[]
   executions LotProcess[]
   @@index([status, dueDate])
   @@index([routeId])
+  @@index([salesOrderId])
 }
 
 model TanneryLot {
@@ -211,6 +222,7 @@ model TanneryLot {
   processes LotProcess[]
   movements LotMovement[]
   qualityInspections QualityInspection[]
+  shipmentItems ShipmentItem[]
   @@index([status])
   @@index([receiptId])
   @@index([productionOrderId])
@@ -471,4 +483,124 @@ model QualityEvidence {
   createdAt DateTime @default(now())
   inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
   @@index([inspectionId])
+}
+
+model CommercialProduct {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  unit CommercialUnit @default(DM2)
+  basePrice Decimal @db.Decimal(14,4)
+  taxRate Decimal @default(16) @db.Decimal(6,3)
+  routeId String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  route ProductionRoute? @relation(fields: [routeId], references: [id])
+  quoteItems SalesQuoteItem[]
+  orderItems SalesOrderItem[]
+  shipmentItems ShipmentItem[]
+  @@index([active])
+}
+
+model SalesQuote {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String
+  status QuoteStatus @default(DRAFT)
+  validUntil DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @default(0) @db.Decimal(14,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer @relation(fields: [customerId], references: [id])
+  items SalesQuoteItem[]
+  salesOrder SalesOrder?
+  @@index([customerId, status])
+}
+
+model SalesQuoteItem {
+  id String @id @default(cuid())
+  quoteId String
+  productId String
+  description String
+  quantity Decimal @db.Decimal(14,3)
+  unitPrice Decimal @db.Decimal(14,4)
+  subtotal Decimal @db.Decimal(14,2)
+  tax Decimal @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  quote SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product CommercialProduct @relation(fields: [productId], references: [id])
+  @@index([quoteId])
+}
+
+model SalesOrder {
+  id String @id @default(cuid())
+  folio String @unique
+  customerId String
+  quoteId String? @unique
+  status SalesOrderStatus @default(DRAFT)
+  requestedDate DateTime?
+  subtotal Decimal @default(0) @db.Decimal(14,2)
+  tax Decimal @default(0) @db.Decimal(14,2)
+  total Decimal @default(0) @db.Decimal(14,2)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer Customer @relation(fields: [customerId], references: [id])
+  quote SalesQuote? @relation(fields: [quoteId], references: [id])
+  items SalesOrderItem[]
+  productionOrders ProductionOrder[]
+  shipments Shipment[]
+  @@index([customerId, status])
+}
+
+model SalesOrderItem {
+  id String @id @default(cuid())
+  salesOrderId String
+  productId String
+  description String
+  quantity Decimal @db.Decimal(14,3)
+  unitPrice Decimal @db.Decimal(14,4)
+  subtotal Decimal @db.Decimal(14,2)
+  tax Decimal @db.Decimal(14,2)
+  total Decimal @db.Decimal(14,2)
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product CommercialProduct @relation(fields: [productId], references: [id])
+  @@index([salesOrderId])
+}
+
+model Shipment {
+  id String @id @default(cuid())
+  folio String @unique
+  salesOrderId String
+  customerId String
+  status ShipmentStatus @default(DRAFT)
+  shippedAt DateTime?
+  carrier String?
+  vehiclePlate String?
+  receivedBy String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  items ShipmentItem[]
+  @@index([salesOrderId, status])
+}
+
+model ShipmentItem {
+  id String @id @default(cuid())
+  shipmentId String
+  productId String
+  lotId String?
+  quantity Decimal @db.Decimal(14,3)
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  product CommercialProduct @relation(fields: [productId], references: [id])
+  lot TanneryLot? @relation(fields: [lotId], references: [id])
+  @@index([shipmentId])
+  @@index([lotId])
 }
