@@ -10,7 +10,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:integration": "tsx scripts/integration-smoke.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
