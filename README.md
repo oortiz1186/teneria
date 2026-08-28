@@ -15,7 +15,7 @@ Estado: avanzado y validado contra PostgreSQL real.
 Implementado:
 
 - login obligatorio, sesiones firmadas de 8 horas y cookies `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
-- autorización por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
+- autorización por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING, FINANCE y MAINTENANCE;
 - credenciales individuales con hash bcrypt en PostgreSQL;
 - `sessionVersion` para revocar sesiones tras cambios de seguridad;
 - administración de usuarios/roles desde `/configuracion`;
@@ -24,7 +24,8 @@ Implementado:
 - un usuario con contraseña temporal sólo puede acceder a `/cuenta` hasta sustituirla;
 - cambio de contraseña por el propio usuario desde `/cuenta`, validando la actual y revocando sesiones previas;
 - auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
-- auditoría en recepción de piel, usuarios, ventas, compras, finanzas, producción, órdenes de producción, calidad, inventario, recetas, consumos químicos, costos, máquinas y genealogía de lotes;
+- auditoría en recepción de piel, usuarios, ventas, compras, finanzas, producción, órdenes de producción, calidad, inventario, recetas, consumos químicos, costos, máquinas, mantenimiento y genealogía de lotes;
+- auditoría atómica en Finanzas, consumo químico y arranque/cierre de producción: operación y `AuditLog` se confirman o revierten juntos;
 - todas las `server actions` operativas protegidas mediante usuario/rol; el login es la única acción pública por diseño;
 - folios resistentes a colisión en los flujos endurecidos;
 - compuerta de Calidad antes de producto terminado;
@@ -36,8 +37,16 @@ Implementado:
 - cierre de proceso protegido contra doble cierre;
 - recepción de OC serializada por partida;
 - lotes químicos por `upsert` para evitar duplicados concurrentes;
-- estados de máquina validados para mantenimiento/liberación;
 - seed seguro: no elimina pasos de rutas ni reemplaza contraseñas existentes;
+- módulo de mantenimiento preventivo/correctivo/inspección en `/mantenimiento`;
+- planes preventivos por máquina, frecuencia por días/horas y próxima fecha;
+- órdenes de mantenimiento con prioridad, programación, técnico, inicio, cierre, resolución y tiempo de paro;
+- una máquina en producción no puede entrar a mantenimiento;
+- iniciar una orden coloca la máquina en `MAINTENANCE` y cerrarla la regresa a `AVAILABLE`;
+- inventario de refacciones con stock, mínimo, costo unitario, entradas y consumos;
+- consumo de refacciones atómico para impedir existencias negativas;
+- costos de mano de obra/refacciones y costo total por orden de mantenimiento;
+- el cambio manual de estado de máquina desde Operación fue eliminado: mantenimiento debe pasar por una orden;
 - esquema Prisma normalizado y validado;
 - CI con PostgreSQL 16 real, Prisma Validate, Prisma Generate, TypeScript, `prisma db push`, seed y pruebas de integración concurrente.
 
@@ -60,7 +69,7 @@ npm run test:integration
 2. dos cobros simultáneos sobre una misma CxC: sólo uno puede aplicar si el saldo no alcanza para ambos;
 3. dos intentos simultáneos de tomar una misma máquina disponible: sólo uno puede ganar.
 
-La primera ejecución completa con PostgreSQL real pasó correctamente todas las etapas.
+La ejecución completa con PostgreSQL real pasa Prisma, TypeScript, creación del esquema, seed y pruebas concurrentes.
 
 ## Requisitos
 
@@ -85,7 +94,7 @@ AUTH_BOOTSTRAP_NAME="Administrador"
 
 ## Actualizar una instalación existente
 
-Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los cambios posteriores de concurrencia, permisos, contraseña temporal y pruebas no agregan tablas nuevas.
+Los cambios de usuarios/auditoría y el estado `CONSUMED` requieren la migración anterior. El módulo de mantenimiento agrega nuevas tablas y enums, por lo que requiere una nueva migración.
 
 Si aún no aplicaste la migración de endurecimiento:
 
@@ -95,15 +104,19 @@ npm install
 npm run db:generate
 npm run db:migrate -- --name hardening_users_audit_lots
 npm run db:seed
+npm run db:migrate -- --name maintenance_module
+npm run db:seed
 npm run dev
 ```
 
-Si ya aplicaste `hardening_users_audit_lots`:
+Si ya aplicaste `hardening_users_audit_lots`, actualiza con:
 
 ```bash
 git pull
 npm install
 npm run db:generate
+npm run db:migrate -- --name maintenance_module
+npm run db:seed
 npm run dev
 ```
 
@@ -115,6 +128,7 @@ Abrir:
 - `http://localhost:3000/auditoria` — Auditoría por usuario + cronología operacional
 - `http://localhost:3000` — Dashboard ejecutivo
 - `http://localhost:3000/operacion` — Piso / operación
+- `http://localhost:3000/mantenimiento` — Preventivo, correctivo y refacciones
 - `http://localhost:3000/costos` — Costos y margen
 
 ## Roles
@@ -126,6 +140,7 @@ Abrir:
 - `SALES`: clientes, cotizaciones, pedidos y remisiones.
 - `PURCHASING`: requisiciones, órdenes de compra y recepción.
 - `FINANCE`: CxC, CxP, pagos, gastos y costos.
+- `MAINTENANCE`: planes, órdenes de mantenimiento, intervención de equipos y refacciones.
 
 ## Flujo integral actual
 
@@ -133,10 +148,12 @@ Recepción → Lote → Pedido/Orden de producción → Ruta → Máquina/Proces
 
 Compras: Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
 
+Mantenimiento: Plan preventivo / Falla → Orden de mantenimiento → Paro controlado de máquina → Refacciones / Mano de obra → Resolución → Liberación de máquina → Historial y costo.
+
 ## Próximos pasos de endurecimiento
 
-1. auditoría atómica dentro de las mismas transacciones críticas;
-2. órdenes de mantenimiento preventivo/correctivo y refacciones;
+1. ampliar auditoría atómica al resto de escrituras críticas;
+2. pruebas de integración específicas para mantenimiento/refacciones;
 3. almacenamiento real de fotografías/PDF/XML;
 4. PWA/offline para piso;
 5. worker Windows para CONTPAQi;
