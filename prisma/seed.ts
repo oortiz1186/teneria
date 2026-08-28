@@ -6,6 +6,21 @@ async function main() {
   const roles = [["ADMIN","Administrador"],["PRODUCTION","Producción"],["WAREHOUSE","Almacén"],["QUALITY","Calidad"],["SALES","Ventas"],["PURCHASING","Compras"],["FINANCE","Administración / Finanzas"]];
   for (const [code,name] of roles) await prisma.role.upsert({ where:{code}, update:{name}, create:{code,name} });
 
+  const bootstrapEmail = process.env.AUTH_BOOTSTRAP_EMAIL?.trim().toLowerCase();
+  if (bootstrapEmail) {
+    const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: "ADMIN" } });
+    const admin = await prisma.user.upsert({
+      where: { email: bootstrapEmail },
+      update: { name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador", status: "ACTIVE" },
+      create: { email: bootstrapEmail, name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador", status: "ACTIVE" }
+    });
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: admin.id, roleId: adminRole.id } },
+      update: {},
+      create: { userId: admin.id, roleId: adminRole.id }
+    });
+  }
+
   const processes = [["RECEPTION","Recepción",10],["SOAKING","Remojo",20],["LIMING","Pelambre",30],["FLESHING","Descarne",40],["SPLITTING","Dividido",50],["DELIMING","Desencalado",60],["PICKLING","Piquelado",70],["TANNING","Curtido",80],["SAMMYING","Escurrido",90],["SHAVING","Rebajado",100],["RETANNING","Recurtido",110],["DYEING","Teñido",120],["FATLIQUORING","Engrase",130],["DRYING","Secado",140],["FINISHING","Acabado",150],["QUALITY","Clasificación / Calidad",160],["FINISHED_WAREHOUSE","Almacén de terminado",170]];
   for (const [code,name,sequence] of processes) await prisma.processCatalog.upsert({ where:{code:String(code)}, update:{name:String(name),sequence:Number(sequence)}, create:{code:String(code),name:String(name),sequence:Number(sequence)} });
 
