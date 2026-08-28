@@ -3,15 +3,18 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireRole } from "@/lib/auth";
 
 const startSchema = z.object({ lotId: z.string().min(1), processId: z.string().min(1), machineId: z.string().optional() });
 const completeSchema = z.object({ executionId: z.string().min(1), outputHides: z.coerce.number().int().nonnegative(), outputWeightKg: z.coerce.number().nonnegative(), temperatureC: z.coerce.number().optional(), ph: z.coerce.number().optional(), notes: z.string().optional() });
 
 export async function startProcess(formData: FormData) {
+  await requireRole(["PRODUCTION"]);
   const data = startSchema.parse({ lotId: formData.get("lotId"), processId: formData.get("processId"), machineId: formData.get("machineId") || undefined });
 
   await prisma.$transaction(async tx => {
     const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
+    if (["COMPLETED", "REJECTED", "CANCELLED"].includes(lot.status)) throw new Error("El lote está cerrado y no admite nuevos procesos.");
     const process = await tx.processCatalog.findUniqueOrThrow({ where: { id: data.processId } });
     const active = await tx.lotProcess.findFirst({ where: { lotId: lot.id, status: "IN_PROGRESS" } });
     if (active) throw new Error("El lote ya tiene un proceso activo.");
@@ -45,6 +48,7 @@ export async function startProcess(formData: FormData) {
 }
 
 export async function completeProcess(formData: FormData) {
+  await requireRole(["PRODUCTION"]);
   const rawTemp = formData.get("temperatureC");
   const rawPh = formData.get("ph");
   const data = completeSchema.parse({ executionId: formData.get("executionId"), outputHides: formData.get("outputHides"), outputWeightKg: formData.get("outputWeightKg"), temperatureC: rawTemp === "" ? undefined : rawTemp, ph: rawPh === "" ? undefined : rawPh, notes: formData.get("notes") || undefined });
@@ -57,23 +61,25 @@ export async function completeProcess(formData: FormData) {
     await tx.lotProcess.update({ where: { id: execution.id }, data: { status: "COMPLETED", completedAt: new Date(), outputHides: data.outputHides, outputWeightKg: data.outputWeightKg, temperatureC: data.temperatureC, ph: data.ph, notes: data.notes } });
 
     const remaining = await tx.lotProcess.count({ where: { lotId: execution.lotId, status: { in: ["PENDING", "IN_PROGRESS"] } } });
-    const routeFinished = remaining === 0 && Boolean(execution.productionOrderId);
+    const routeFinished = remaining === 0 && Boolean(execution.productionOrderId) && Boolean(execution.routeStepId);
+    const awaitingQualityRelease = routeFinished && execution.process.code === "QUALITY";
+    const nextStatus = awaitingQualityRelease ? "ON_HOLD" : routeFinished ? "COMPLETED" : "IN_PROCESS";
 
-    await tx.tanneryLot.update({ where: { id: execution.lotId }, data: { currentHides: data.outputHides, currentWeightKg: data.outputWeightKg, currentProcessCode: execution.process.code, status: routeFinished ? "COMPLETED" : "IN_PROCESS" } });
+    await tx.tanneryLot.update({ where: { id: execution.lotId }, data: { currentHides: data.outputHides, currentWeightKg: data.outputWeightKg, currentProcessCode: execution.process.code, status: nextStatus } });
     if (execution.machineId) await tx.machine.update({ where: { id: execution.machineId }, data: { status: "AVAILABLE" } });
 
     await tx.lotMovement.create({ data: { lotId: execution.lotId, type: "PROCESS_OUT", hidesQuantity: data.outputHides, weightKg: data.outputWeightKg, reference: execution.process.code, notes: data.notes } });
 
-    if (routeFinished) {
+    if (routeFinished && !awaitingQualityRelease) {
       const finishedWarehouse = await tx.warehouse.findUnique({ where: { code: "PT" } });
       await tx.lotMovement.create({ data: { lotId: execution.lotId, warehouseId: finishedWarehouse?.id, type: "FINISHED_GOODS", hidesQuantity: data.outputHides, weightKg: data.outputWeightKg, reference: execution.productionOrderId ?? undefined, notes: "Ruta de producción completada" } });
     }
 
-    if (execution.productionOrderId) {
-      const unfinishedLots = await tx.tanneryLot.count({ where: { productionOrderId: execution.productionOrderId, status: { not: "COMPLETED" } } });
+    if (execution.productionOrderId && !awaitingQualityRelease) {
+      const unfinishedLots = await tx.tanneryLot.count({ where: { productionOrderId: execution.productionOrderId, status: { notIn: ["COMPLETED", "REJECTED", "CANCELLED"] } } });
       if (unfinishedLots === 0) await tx.productionOrder.update({ where: { id: execution.productionOrderId }, data: { status: "COMPLETED" } });
     }
   });
 
-  revalidatePath("/produccion"); revalidatePath("/produccion/ordenes"); revalidatePath("/lotes"); revalidatePath("/");
+  revalidatePath("/produccion"); revalidatePath("/produccion/ordenes"); revalidatePath("/lotes"); revalidatePath("/calidad"); revalidatePath("/");
 }
