@@ -10,47 +10,57 @@ Estado: completadas en su alcance inicial.
 Incluyen recepción/lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración, costos/contabilidad, dashboard ejecutivo, operación de piso y auditoría operacional.
 
 ### Endurecimiento para producción — Etapa 2
-Estado: avanzado.
+Estado: avanzado y validado contra PostgreSQL real.
 
 Implementado:
 
-- login obligatorio para acceder al ERP;
-- sesión firmada con `AUTH_SECRET` y duración de 8 horas;
-- cookie `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
+- login obligatorio, sesiones firmadas de 8 horas y cookies `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
 - autorización por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
 - credenciales individuales con hash bcrypt en PostgreSQL;
 - `sessionVersion` para revocar sesiones tras cambios de seguridad;
-- último acceso por usuario;
 - administración de usuarios/roles desde `/configuracion`;
-- activación, desactivación, cambio de roles y restablecimiento de contraseña;
-- cambio de contraseña por el propio usuario desde `/cuenta`, validando su contraseña actual y revocando las sesiones anteriores;
+- alta, activación/desactivación, cambio de roles y restablecimiento de contraseña;
+- las contraseñas creadas/restablecidas por un administrador son temporales (`mustChangePassword=true`);
+- un usuario con contraseña temporal sólo puede acceder a `/cuenta` hasta sustituirla;
+- cambio de contraseña por el propio usuario desde `/cuenta`, validando la actual y revocando sesiones previas;
 - auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
-- auditoría en usuarios, recepción de piel, ventas, compras, finanzas, producción, órdenes de producción, calidad, inventario, recetas, consumos químicos, costos, máquinas y genealogía de lotes;
-- `/auditoria` con auditoría real por usuario y cronología operacional;
-- todas las `server actions` operativas del ERP protegidas mediante usuario/rol correspondiente;
+- auditoría en recepción de piel, usuarios, ventas, compras, finanzas, producción, órdenes de producción, calidad, inventario, recetas, consumos químicos, costos, máquinas y genealogía de lotes;
+- todas las `server actions` operativas protegidas mediante usuario/rol; el login es la única acción pública por diseño;
 - folios resistentes a colisión en los flujos endurecidos;
-- compuerta de calidad: QUALITY deja el lote en espera hasta liberación explícita;
-- producto terminado sólo se registra tras liberación de Calidad;
+- compuerta de Calidad antes de producto terminado;
 - estado `CONSUMED` para lotes absorbidos por una fusión;
-- división de lote bloqueada durante procesos activos;
-- división copia al lote hijo los pasos pendientes de la ruta;
-- fusión bloqueada durante procesos activos y exige misma orden, etapa, artículo, color y ruta pendiente;
-- pasos pendientes del lote absorbido se cancelan tras una fusión válida;
-- cierre de orden trata `COMPLETED`, `REJECTED`, `CANCELLED` y `CONSUMED` como estados terminales;
-- consumo químico con decremento atómico y bloqueo de existencias negativas ante solicitudes concurrentes;
-- recetas activas filtradas por vigencia al registrar consumos;
-- control de unidad para porcentajes sobre peso en recetas;
-- cobros CxC y pagos CxP con decremento atómico de saldo y rechazo de pagos concurrentes inválidos;
-- inicio de procesos con bloqueo de fila del lote y toma atómica de máquina;
-- cierre de procesos con bloqueo de ejecución para evitar doble cierre;
-- recepción de órdenes de compra serializada por partida para evitar sobre-recepciones concurrentes;
-- lotes químicos recibidos mediante `upsert` para impedir duplicados del mismo lote/proveedor/almacén;
-- recepción manual de químicos consolidada por químico/almacén/lote;
-- estados de máquina validados: no puede enviarse a mantenimiento una máquina en uso ni liberarse una que no esté en mantenimiento;
-- asignación de lotes a órdenes de producción bloqueada para lotes cerrados o con proceso activo;
-- seed seguro: no elimina pasos de rutas existentes y no vuelve a sobrescribir una contraseña de administrador ya inicializada;
-- CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript;
-- esquema Prisma corregido a sintaxis válida de enums y verificado por CI.
+- división/fusión de lotes protegida por estado, proceso, orden, etapa, artículo, color y ruta;
+- consumo químico con decremento atómico y bloqueo de existencias negativas;
+- cobros CxC y pagos CxP con decremento atómico de saldo;
+- inicio de proceso con bloqueo de lote y toma atómica de máquina;
+- cierre de proceso protegido contra doble cierre;
+- recepción de OC serializada por partida;
+- lotes químicos por `upsert` para evitar duplicados concurrentes;
+- estados de máquina validados para mantenimiento/liberación;
+- seed seguro: no elimina pasos de rutas ni reemplaza contraseñas existentes;
+- esquema Prisma normalizado y validado;
+- CI con PostgreSQL 16 real, Prisma Validate, Prisma Generate, TypeScript, `prisma db push`, seed y pruebas de integración concurrente.
+
+## Validación automática
+
+El workflow de GitHub Actions levanta PostgreSQL 16 y ejecuta:
+
+```bash
+npx prisma validate
+npx prisma generate
+npx tsc --noEmit
+npx prisma db push --skip-generate
+npm run db:seed
+npm run test:integration
+```
+
+`npm run test:integration` valida actualmente tres escenarios concurrentes críticos:
+
+1. dos consumos simultáneos sobre el mismo lote químico: sólo uno puede descontar si el saldo no alcanza para ambos;
+2. dos cobros simultáneos sobre una misma CxC: sólo uno puede aplicar si el saldo no alcanza para ambos;
+3. dos intentos simultáneos de tomar una misma máquina disponible: sólo uno puede ganar.
+
+La primera ejecución completa con PostgreSQL real pasó correctamente todas las etapas.
 
 ## Requisitos
 
@@ -75,7 +85,9 @@ AUTH_BOOTSTRAP_NAME="Administrador"
 
 ## Actualizar una instalación existente
 
-Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los cambios posteriores de concurrencia, permisos, auditoría adicional y cambio de contraseña no agregan tablas nuevas.
+Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los cambios posteriores de concurrencia, permisos, contraseña temporal y pruebas no agregan tablas nuevas.
+
+Si aún no aplicaste la migración de endurecimiento:
 
 ```bash
 git pull
@@ -86,7 +98,7 @@ npm run db:seed
 npm run dev
 ```
 
-Si ya aplicaste `hardening_users_audit_lots`, basta con:
+Si ya aplicaste `hardening_users_audit_lots`:
 
 ```bash
 git pull
@@ -115,25 +127,19 @@ Abrir:
 - `PURCHASING`: requisiciones, órdenes de compra y recepción.
 - `FINANCE`: CxC, CxP, pagos, gastos y costos.
 
-El administrador bootstrap recibe `ADMIN` al ejecutar `npm run db:seed`. Después puedes crear cuentas individuales desde Configuración.
-
 ## Flujo integral actual
 
 Recepción → Lote → Pedido/Orden de producción → Ruta → Máquina/Proceso → Receta → Consumo químico → Calidad → Producto terminado → Remisión → CxC → Cobro → Costeo/Margen → Cola contable.
 
-Compras:
-
-Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
+Compras: Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
 
 ## Próximos pasos de endurecimiento
 
-1. pruebas de integración concurrente contra PostgreSQL real;
-2. recuperación controlada de acceso para usuarios que olviden su contraseña;
-3. auditoría atómica dentro de las mismas transacciones críticas;
-4. órdenes de mantenimiento preventivo/correctivo y refacciones;
-5. almacenamiento real de fotografías/PDF/XML;
-6. PWA/offline para piso;
-7. worker Windows para CONTPAQi;
-8. backups automáticos y restauración probada;
-9. monitoreo y alertas de infraestructura/aplicación;
-10. despliegue productivo reproducible.
+1. auditoría atómica dentro de las mismas transacciones críticas;
+2. órdenes de mantenimiento preventivo/correctivo y refacciones;
+3. almacenamiento real de fotografías/PDF/XML;
+4. PWA/offline para piso;
+5. worker Windows para CONTPAQi;
+6. backups automáticos y restauración probada;
+7. monitoreo y alertas de infraestructura/aplicación;
+8. despliegue productivo reproducible.
