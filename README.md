@@ -10,7 +10,7 @@ Estado: completadas en su alcance inicial.
 Incluyen recepción/lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración, costos/contabilidad, dashboard ejecutivo, operación de piso y auditoría operacional.
 
 ### Endurecimiento para producción — Etapa 2
-Estado: en progreso avanzado.
+Estado: avanzado.
 
 Implementado:
 
@@ -23,9 +23,11 @@ Implementado:
 - último acceso por usuario;
 - administración de usuarios/roles desde `/configuracion`;
 - activación, desactivación, cambio de roles y restablecimiento de contraseña;
+- cambio de contraseña por el propio usuario desde `/cuenta`, validando su contraseña actual y revocando las sesiones anteriores;
 - auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
-- auditoría en usuarios, ventas, compras, finanzas, producción, calidad, consumos químicos y genealogía de lotes;
+- auditoría en usuarios, recepción de piel, ventas, compras, finanzas, producción, órdenes de producción, calidad, inventario, recetas, consumos químicos, costos, máquinas y genealogía de lotes;
 - `/auditoria` con auditoría real por usuario y cronología operacional;
+- todas las `server actions` operativas del ERP protegidas mediante usuario/rol correspondiente;
 - folios resistentes a colisión en los flujos endurecidos;
 - compuerta de calidad: QUALITY deja el lote en espera hasta liberación explícita;
 - producto terminado sólo se registra tras liberación de Calidad;
@@ -43,6 +45,9 @@ Implementado:
 - cierre de procesos con bloqueo de ejecución para evitar doble cierre;
 - recepción de órdenes de compra serializada por partida para evitar sobre-recepciones concurrentes;
 - lotes químicos recibidos mediante `upsert` para impedir duplicados del mismo lote/proveedor/almacén;
+- recepción manual de químicos consolidada por químico/almacén/lote;
+- estados de máquina validados: no puede enviarse a mantenimiento una máquina en uso ni liberarse una que no esté en mantenimiento;
+- asignación de lotes a órdenes de producción bloqueada para lotes cerrados o con proceso activo;
 - seed seguro: no elimina pasos de rutas existentes y no vuelve a sobrescribir una contraseña de administrador ya inicializada;
 - CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript;
 - esquema Prisma corregido a sintaxis válida de enums y verificado por CI.
@@ -70,7 +75,7 @@ AUTH_BOOTSTRAP_NAME="Administrador"
 
 ## Actualizar una instalación existente
 
-Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los últimos cambios de concurrencia son sólo lógica transaccional y no agregan tablas nuevas.
+Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los cambios posteriores de concurrencia, permisos, auditoría adicional y cambio de contraseña no agregan tablas nuevas.
 
 ```bash
 git pull
@@ -81,7 +86,7 @@ npm run db:seed
 npm run dev
 ```
 
-Si ya aplicaste `hardening_users_audit_lots`, para los cambios de concurrencia basta con:
+Si ya aplicaste `hardening_users_audit_lots`, basta con:
 
 ```bash
 git pull
@@ -93,6 +98,7 @@ npm run dev
 Abrir:
 
 - `http://localhost:3000/login` — Inicio de sesión
+- `http://localhost:3000/cuenta` — Mi cuenta / cambiar contraseña
 - `http://localhost:3000/configuracion` — Usuarios y roles
 - `http://localhost:3000/auditoria` — Auditoría por usuario + cronología operacional
 - `http://localhost:3000` — Dashboard ejecutivo
@@ -121,13 +127,13 @@ Requisición → Orden de compra → Recepción → Inventario → Factura prove
 
 ## Próximos pasos de endurecimiento
 
-1. proteger y auditar las server actions restantes de inventario, recetas, costos, recepciones y operación;
-2. pruebas de integración concurrente contra PostgreSQL real;
-3. cambio de contraseña por el propio usuario y recuperación controlada;
-4. auditoría atómica dentro de las mismas transacciones críticas;
-5. órdenes de mantenimiento preventivo/correctivo y refacciones;
-6. almacenamiento real de fotografías/PDF/XML;
-7. PWA/offline para piso;
-8. worker Windows para CONTPAQi;
-9. backups, monitoreo y alertas;
+1. pruebas de integración concurrente contra PostgreSQL real;
+2. recuperación controlada de acceso para usuarios que olviden su contraseña;
+3. auditoría atómica dentro de las mismas transacciones críticas;
+4. órdenes de mantenimiento preventivo/correctivo y refacciones;
+5. almacenamiento real de fotografías/PDF/XML;
+6. PWA/offline para piso;
+7. worker Windows para CONTPAQi;
+8. backups automáticos y restauración probada;
+9. monitoreo y alertas de infraestructura/aplicación;
 10. despliegue productivo reproducible.
