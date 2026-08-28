@@ -21,7 +21,8 @@ const nav = [
   ["/finanzas", "Administración"],
   ["/costos", "Costos"],
   ["/auditoria", "Auditoría"],
-  ["/configuracion", "Configuración"]
+  ["/configuracion", "Configuración"],
+  ["/cuenta", "Mi cuenta"]
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
