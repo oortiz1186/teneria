@@ -17,6 +17,9 @@ enum LotRelationType { SPLIT MERGE REPROCESS TRANSFORM }
 enum MovementType { RECEIPT TRANSFER PROCESS_IN PROCESS_OUT SPLIT MERGE ADJUSTMENT REJECTION FINISHED_GOODS }
 enum ChemicalMovementType { RECEIPT CONSUMPTION ADJUSTMENT TRANSFER_IN TRANSFER_OUT RETURN }
 enum RecipeBasis { WEIGHT_PERCENT FIXED_QUANTITY }
+enum QualityInspectionStatus { DRAFT APPROVED CONDITIONAL REJECTED REWORK_REQUIRED }
+enum QualitySeverity { LOW MEDIUM HIGH CRITICAL }
+enum QualityDisposition { RELEASE REWORK REJECT HOLD }
 
 model User {
   id String @id @default(cuid())
@@ -207,6 +210,7 @@ model TanneryLot {
   targetRelations LotRelation[] @relation("LotRelationChild")
   processes LotProcess[]
   movements LotMovement[]
+  qualityInspections QualityInspection[]
   @@index([status])
   @@index([receiptId])
   @@index([productionOrderId])
@@ -242,6 +246,7 @@ model ProcessCatalog {
   executions LotProcess[]
   routeSteps ProductionRouteStep[]
   recipes Recipe[]
+  qualityInspections QualityInspection[]
   @@index([sequence])
 }
 
@@ -270,6 +275,7 @@ model LotProcess {
   routeStep ProductionRouteStep? @relation(fields: [routeStepId], references: [id])
   productionOrder ProductionOrder? @relation(fields: [productionOrderId], references: [id])
   chemicalConsumptions ProcessChemicalConsumption[]
+  qualityInspections QualityInspection[]
   @@index([lotId, status])
   @@index([processId, status])
   @@index([machineId, status])
@@ -397,4 +403,72 @@ model ProcessChemicalConsumption {
   chemicalLot ChemicalLot? @relation(fields: [chemicalLotId], references: [id])
   @@index([lotProcessId])
   @@index([chemicalId])
+}
+
+model QualityDefectCatalog {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  category String?
+  defaultSeverity QualitySeverity @default(MEDIUM)
+  active Boolean @default(true)
+  description String?
+  findings QualityDefectFinding[]
+}
+
+model QualityInspection {
+  id String @id @default(cuid())
+  folio String @unique
+  lotId String
+  lotProcessId String?
+  processId String?
+  status QualityInspectionStatus @default(DRAFT)
+  disposition QualityDisposition?
+  grade String?
+  thicknessMm Decimal? @db.Decimal(8,3)
+  areaDm2 Decimal? @db.Decimal(14,3)
+  colorResult String?
+  visualResult String?
+  tensileResult String?
+  adhesionResult String?
+  flexResult String?
+  inspectorName String?
+  notes String?
+  inspectedAt DateTime @default(now())
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lot TanneryLot @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  lotProcess LotProcess? @relation(fields: [lotProcessId], references: [id])
+  process ProcessCatalog? @relation(fields: [processId], references: [id])
+  defects QualityDefectFinding[]
+  evidence QualityEvidence[]
+  @@index([lotId, inspectedAt])
+  @@index([status])
+}
+
+model QualityDefectFinding {
+  id String @id @default(cuid())
+  inspectionId String
+  defectId String
+  severity QualitySeverity
+  affectedHides Int?
+  affectedAreaDm2 Decimal? @db.Decimal(14,3)
+  notes String?
+  inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  defect QualityDefectCatalog @relation(fields: [defectId], references: [id])
+  @@index([inspectionId])
+  @@index([defectId])
+}
+
+model QualityEvidence {
+  id String @id @default(cuid())
+  inspectionId String
+  fileUrl String
+  fileName String?
+  mimeType String?
+  notes String?
+  createdAt DateTime @default(now())
+  inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  @@index([inspectionId])
 }
