@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { createFolio } from "@/lib/folio";
+import { requireRole } from "@/lib/auth";
 
 const productSchema = z.object({
   code: z.string().min(1),
@@ -24,16 +26,17 @@ const quoteSchema = z.object({
 });
 
 export async function createCustomer(formData: FormData) {
+  await requireRole(["SALES"]);
   const name = z.string().min(2).parse(formData.get("name"));
   const taxId = z.string().optional().parse(formData.get("taxId") || undefined);
   const phone = z.string().optional().parse(formData.get("phone") || undefined);
   const email = z.string().optional().parse(formData.get("email") || undefined);
-  const suffix = `${Date.now()}`.slice(-6);
-  await prisma.customer.create({ data: { code: `CLI-${suffix}`, name: name.trim(), taxId, phone, email } });
+  await prisma.customer.create({ data: { code: createFolio("CLI"), name: name.trim(), taxId, phone, email } });
   revalidatePath("/ventas");
 }
 
 export async function createCommercialProduct(formData: FormData) {
+  await requireRole(["SALES"]);
   const data = productSchema.parse({
     code: formData.get("code"),
     name: formData.get("name"),
@@ -49,6 +52,7 @@ export async function createCommercialProduct(formData: FormData) {
 }
 
 export async function createQuote(formData: FormData) {
+  await requireRole(["SALES"]);
   const data = quoteSchema.parse({
     customerId: formData.get("customerId"),
     productId: formData.get("productId"),
@@ -62,11 +66,10 @@ export async function createQuote(formData: FormData) {
   const subtotal = data.quantity * data.unitPrice;
   const tax = subtotal * (Number(product.taxRate) / 100);
   const total = subtotal + tax;
-  const suffix = `${Date.now()}`.slice(-8);
 
   await prisma.salesQuote.create({
     data: {
-      folio: `COT-${new Date().getFullYear()}-${suffix}`,
+      folio: createFolio("COT"),
       customerId: data.customerId,
       validUntil: data.validUntil ? new Date(`${data.validUntil}T12:00:00`) : null,
       subtotal,
@@ -81,23 +84,25 @@ export async function createQuote(formData: FormData) {
 }
 
 export async function markQuoteSent(formData: FormData) {
+  await requireRole(["SALES"]);
   const quoteId = z.string().min(1).parse(formData.get("quoteId"));
   await prisma.salesQuote.update({ where: { id: quoteId }, data: { status: "SENT" } });
   revalidatePath("/ventas");
 }
 
 export async function acceptQuoteAndCreateOrder(formData: FormData) {
+  await requireRole(["SALES"]);
   const quoteId = z.string().min(1).parse(formData.get("quoteId"));
 
   await prisma.$transaction(async (tx) => {
     const quote = await tx.salesQuote.findUniqueOrThrow({ where: { id: quoteId }, include: { items: true, salesOrder: true } });
     if (quote.salesOrder) throw new Error("La cotización ya tiene pedido.");
+    if (!["DRAFT", "SENT"].includes(quote.status)) throw new Error("La cotización no está disponible para aceptación.");
 
-    const suffix = `${Date.now()}`.slice(-8);
     await tx.salesQuote.update({ where: { id: quote.id }, data: { status: "ACCEPTED" } });
     await tx.salesOrder.create({
       data: {
-        folio: `PED-${new Date().getFullYear()}-${suffix}`,
+        folio: createFolio("PED"),
         customerId: quote.customerId,
         quoteId: quote.id,
         status: "DRAFT",
@@ -114,19 +119,18 @@ export async function acceptQuoteAndCreateOrder(formData: FormData) {
 }
 
 export async function confirmSalesOrder(formData: FormData) {
+  await requireRole(["SALES"]);
   const salesOrderId = z.string().min(1).parse(formData.get("salesOrderId"));
 
   await prisma.$transaction(async (tx) => {
     const order = await tx.salesOrder.findUniqueOrThrow({ where: { id: salesOrderId }, include: { items: { include: { product: true } }, productionOrders: true } });
     if (order.status !== "DRAFT") throw new Error("El pedido ya fue confirmado o cerrado.");
+    if (order.productionOrders.length > 0) throw new Error("El pedido ya tiene órdenes de producción asociadas.");
 
-    let counter = 0;
     for (const item of order.items) {
-      counter++;
-      const suffix = `${Date.now()}`.slice(-7);
       await tx.productionOrder.create({
         data: {
-          folio: `OP-${new Date().getFullYear()}-${suffix}-${counter}`,
+          folio: createFolio("OP"),
           customerId: order.customerId,
           salesOrderId: order.id,
           routeId: item.product.routeId,
@@ -147,6 +151,7 @@ export async function confirmSalesOrder(formData: FormData) {
 }
 
 export async function createShipment(formData: FormData) {
+  await requireRole(["SALES"]);
   const salesOrderId = z.string().min(1).parse(formData.get("salesOrderId"));
   const lotId = z.string().min(1).parse(formData.get("lotId"));
   const productId = z.string().min(1).parse(formData.get("productId"));
@@ -154,13 +159,13 @@ export async function createShipment(formData: FormData) {
 
   await prisma.$transaction(async (tx) => {
     const order = await tx.salesOrder.findUniqueOrThrow({ where: { id: salesOrderId } });
-    const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: lotId } });
+    const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: lotId }, include: { productionOrder: true } });
     if (lot.status !== "COMPLETED") throw new Error("Sólo se pueden remisionar lotes liberados/terminados.");
+    if (lot.productionOrder?.salesOrderId !== order.id) throw new Error("El lote no pertenece a este pedido.");
 
-    const suffix = `${Date.now()}`.slice(-8);
     await tx.shipment.create({
       data: {
-        folio: `REM-${new Date().getFullYear()}-${suffix}`,
+        folio: createFolio("REM"),
         salesOrderId: order.id,
         customerId: order.customerId,
         status: "ISSUED",
