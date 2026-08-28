@@ -7,6 +7,7 @@ import { logoutAction } from "@/app/login/actions";
 const nav = [
   ["/", "Dashboard"],
   ["/operacion", "Piso / Operación"],
+  ["/mantenimiento", "Mantenimiento"],
   ["/recepciones", "Recepción de piel"],
   ["/lotes", "Lotes"],
   ["/produccion", "Producción"],
