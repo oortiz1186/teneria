@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireRole } from "@/lib/auth";
+import { createFolio } from "@/lib/folio";
 
 const inspectionSchema = z.object({
   lotId: z.string().min(1),
@@ -19,12 +21,9 @@ const inspectionSchema = z.object({
   notes: z.string().optional()
 });
 
-function folio(prefix: string) {
-  return `${prefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-8)}`;
-}
-
 export async function createInspection(formData: FormData) {
-  const raw = {
+  await requireRole(["QUALITY"]);
+  const data = inspectionSchema.parse({
     lotId: formData.get("lotId"),
     lotProcessId: formData.get("lotProcessId") || undefined,
     grade: formData.get("grade") || undefined,
@@ -37,18 +36,21 @@ export async function createInspection(formData: FormData) {
     flexResult: formData.get("flexResult") || undefined,
     inspectorName: formData.get("inspectorName") || undefined,
     notes: formData.get("notes") || undefined
-  };
-  const data = inspectionSchema.parse(raw);
+  });
+
+  const lot = await prisma.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
+  if (["REJECTED", "CANCELLED"].includes(lot.status)) throw new Error("El lote está cerrado para inspección.");
 
   let processId: string | undefined;
   if (data.lotProcessId) {
-    const lp = await prisma.lotProcess.findUnique({ where: { id: data.lotProcessId } });
-    processId = lp?.processId;
+    const lp = await prisma.lotProcess.findUniqueOrThrow({ where: { id: data.lotProcessId } });
+    if (lp.lotId !== data.lotId) throw new Error("El proceso seleccionado no pertenece al lote.");
+    processId = lp.processId;
   }
 
   await prisma.qualityInspection.create({
     data: {
-      folio: folio("QC"),
+      folio: createFolio("QC"),
       lotId: data.lotId,
       lotProcessId: data.lotProcessId,
       processId,
@@ -70,18 +72,24 @@ export async function createInspection(formData: FormData) {
 }
 
 export async function addDefect(formData: FormData) {
-  const inspectionId = String(formData.get("inspectionId"));
-  const defectId = String(formData.get("defectId"));
-  const severity = String(formData.get("severity")) as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  await requireRole(["QUALITY"]);
+  const inspectionId = z.string().min(1).parse(formData.get("inspectionId"));
+  const defectId = z.string().min(1).parse(formData.get("defectId"));
+  const severity = z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).parse(formData.get("severity"));
   const affectedHidesRaw = formData.get("affectedHides");
   const affectedAreaRaw = formData.get("affectedAreaDm2");
+
+  const inspection = await prisma.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId }, include: { lot: true } });
+  if (inspection.status !== "DRAFT") throw new Error("La inspección ya fue resuelta.");
+  const affectedHides = affectedHidesRaw ? Number(affectedHidesRaw) : null;
+  if (affectedHides !== null && affectedHides > inspection.lot.currentHides) throw new Error("Las pieles afectadas exceden el total del lote.");
 
   await prisma.qualityDefectFinding.create({
     data: {
       inspectionId,
       defectId,
       severity,
-      affectedHides: affectedHidesRaw ? Number(affectedHidesRaw) : null,
+      affectedHides,
       affectedAreaDm2: affectedAreaRaw ? Number(affectedAreaRaw) : null,
       notes: String(formData.get("notes") || "") || null
     }
@@ -91,84 +99,56 @@ export async function addDefect(formData: FormData) {
 }
 
 export async function addEvidence(formData: FormData) {
-  const inspectionId = String(formData.get("inspectionId"));
-  const fileUrl = String(formData.get("fileUrl"));
+  await requireRole(["QUALITY"]);
+  const inspectionId = z.string().min(1).parse(formData.get("inspectionId"));
+  const fileUrl = z.string().url().parse(formData.get("fileUrl"));
   const fileName = String(formData.get("fileName") || "") || null;
   const notes = String(formData.get("notes") || "") || null;
+  const inspection = await prisma.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId } });
+  if (inspection.status !== "DRAFT") throw new Error("La inspección ya fue resuelta.");
 
-  if (!fileUrl) throw new Error("La URL de evidencia es obligatoria.");
-
-  await prisma.qualityEvidence.create({
-    data: { inspectionId, fileUrl, fileName, notes }
-  });
-
+  await prisma.qualityEvidence.create({ data: { inspectionId, fileUrl, fileName, notes } });
   revalidatePath("/calidad");
 }
 
 export async function resolveInspection(formData: FormData) {
-  const inspectionId = String(formData.get("inspectionId"));
-  const disposition = String(formData.get("disposition")) as "RELEASE" | "REWORK" | "REJECT" | "HOLD";
+  await requireRole(["QUALITY"]);
+  const inspectionId = z.string().min(1).parse(formData.get("inspectionId"));
+  const disposition = z.enum(["RELEASE", "REWORK", "REJECT", "HOLD"]).parse(formData.get("disposition"));
 
   await prisma.$transaction(async tx => {
-    const inspection = await tx.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId } });
+    const inspection = await tx.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId }, include: { lot: true } });
+    if (inspection.status !== "DRAFT") throw new Error("La inspección ya fue resuelta.");
 
-    const status = disposition === "RELEASE"
-      ? "APPROVED"
-      : disposition === "REWORK"
-        ? "REWORK_REQUIRED"
-        : disposition === "REJECT"
-          ? "REJECTED"
-          : "CONDITIONAL";
+    const status = disposition === "RELEASE" ? "APPROVED" : disposition === "REWORK" ? "REWORK_REQUIRED" : disposition === "REJECT" ? "REJECTED" : "CONDITIONAL";
 
     await tx.qualityInspection.update({
       where: { id: inspectionId },
-      data: {
-        status,
-        disposition,
-        releasedAt: disposition === "RELEASE" ? new Date() : null
-      }
+      data: { status, disposition, releasedAt: disposition === "RELEASE" ? new Date() : null }
     });
 
     if (disposition === "RELEASE") {
-      await tx.tanneryLot.update({
-        where: { id: inspection.lotId },
-        data: { status: "COMPLETED", currentProcessCode: "QUALITY" }
-      });
-    }
+      await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "COMPLETED", currentProcessCode: "QUALITY" } });
+      const finishedWarehouse = await tx.warehouse.findUnique({ where: { code: "PT" } });
+      await tx.lotMovement.create({ data: { lotId: inspection.lotId, warehouseId: finishedWarehouse?.id, type: "FINISHED_GOODS", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: "Lote liberado por calidad" } });
 
-    if (disposition === "HOLD") {
-      await tx.tanneryLot.update({
-        where: { id: inspection.lotId },
-        data: { status: "ON_HOLD" }
-      });
-    }
-
-    if (disposition === "REJECT") {
-      await tx.tanneryLot.update({
-        where: { id: inspection.lotId },
-        data: { status: "REJECTED" }
-      });
-      await tx.lotMovement.create({
-        data: {
-          lotId: inspection.lotId,
-          type: "REJECTION",
-          hidesQuantity: (await tx.tanneryLot.findUniqueOrThrow({ where: { id: inspection.lotId } })).currentHides,
-          reference: inspection.folio,
-          notes: "Rechazo por inspección de calidad"
-        }
-      });
-    }
-
-    if (disposition === "REWORK") {
-      await tx.tanneryLot.update({
-        where: { id: inspection.lotId },
-        data: { status: "ON_HOLD", currentProcessCode: "REWORK" }
-      });
+      if (inspection.lot.productionOrderId) {
+        const unfinishedLots = await tx.tanneryLot.count({ where: { productionOrderId: inspection.lot.productionOrderId, status: { notIn: ["COMPLETED", "REJECTED", "CANCELLED"] } } });
+        if (unfinishedLots === 0) await tx.productionOrder.update({ where: { id: inspection.lot.productionOrderId }, data: { status: "COMPLETED" } });
+      }
+    } else if (disposition === "HOLD") {
+      await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "ON_HOLD" } });
+    } else if (disposition === "REJECT") {
+      await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "REJECTED" } });
+      await tx.lotMovement.create({ data: { lotId: inspection.lotId, type: "REJECTION", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: "Rechazo por inspección de calidad" } });
+    } else {
+      await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "ON_HOLD", currentProcessCode: "REWORK" } });
     }
   });
 
   revalidatePath("/calidad");
   revalidatePath("/lotes");
   revalidatePath("/produccion");
+  revalidatePath("/produccion/ordenes");
   revalidatePath("/");
 }
