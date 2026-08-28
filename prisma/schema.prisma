@@ -1190,3 +1190,23 @@ model AuditLog {
   @@index([entityType,entityId])
   @@index([action])
 }
+
+
+model DocumentAttachment {
+  id String @id @default(cuid())
+  entityType String
+  entityId String
+  category String?
+  originalName String
+  mimeType String
+  sizeBytes Int
+  storageProvider String @default("LOCAL")
+  storageKey String @unique
+  sha256 String
+  uploadedById String?
+  uploadedByEmail String?
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  @@index([entityType,entityId,createdAt])
+  @@index([sha256])
+}
