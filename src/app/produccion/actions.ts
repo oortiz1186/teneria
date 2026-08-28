@@ -14,16 +14,22 @@ export async function startProcess(formData: FormData) {
   const data = startSchema.parse({ lotId: formData.get("lotId"), processId: formData.get("processId"), machineId: formData.get("machineId") || undefined });
 
   const result = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "TanneryLot" WHERE id = ${data.lotId} FOR UPDATE`;
     const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
     if (["COMPLETED", "REJECTED", "CANCELLED", "CONSUMED"].includes(lot.status)) throw new Error("El lote está cerrado y no admite nuevos procesos.");
+
     const process = await tx.processCatalog.findUniqueOrThrow({ where: { id: data.processId } });
     const active = await tx.lotProcess.findFirst({ where: { lotId: lot.id, status: "IN_PROGRESS" } });
     if (active) throw new Error("El lote ya tiene un proceso activo.");
 
     if (data.machineId) {
       const machine = await tx.machine.findUniqueOrThrow({ where: { id: data.machineId } });
-      if (!machine.active || machine.status !== "AVAILABLE") throw new Error("La máquina seleccionada no está disponible.");
       if (machine.capacityKg && Number(lot.currentWeightKg) > Number(machine.capacityKg)) throw new Error("El peso del lote excede la capacidad de la máquina seleccionada.");
+      const claimed = await tx.machine.updateMany({
+        where: { id: data.machineId, active: true, status: "AVAILABLE" },
+        data: { status: "IN_USE" }
+      });
+      if (claimed.count !== 1) throw new Error("La máquina fue tomada por otro usuario. Actualiza la pantalla y selecciona otra máquina disponible.");
     }
 
     const pendingSteps = await tx.lotProcess.findMany({ where: { lotId: lot.id, status: "PENDING" }, include: { routeStep: true } });
@@ -33,15 +39,18 @@ export async function startProcess(formData: FormData) {
     if (pendingSteps.length > 0) {
       const next = pendingSteps[0];
       if (next.processId !== process.id) throw new Error("El proceso seleccionado no es el siguiente paso de la ruta del lote.");
+      const started = await tx.lotProcess.updateMany({
+        where: { id: next.id, status: "PENDING" },
+        data: { machineId: data.machineId, status: "IN_PROGRESS", startedAt: new Date(), inputHides: lot.currentHides, inputWeightKg: lot.currentWeightKg }
+      });
+      if (started.count !== 1) throw new Error("El paso de producción cambió mientras intentabas iniciarlo. Actualiza la pantalla.");
       executionId = next.id;
-      await tx.lotProcess.update({ where: { id: next.id }, data: { machineId: data.machineId, status: "IN_PROGRESS", startedAt: new Date(), inputHides: lot.currentHides, inputWeightKg: lot.currentWeightKg } });
     } else {
       const created = await tx.lotProcess.create({ data: { lotId: lot.id, processId: process.id, productionOrderId: lot.productionOrderId, machineId: data.machineId, status: "IN_PROGRESS", startedAt: new Date(), inputHides: lot.currentHides, inputWeightKg: lot.currentWeightKg } });
       executionId = created.id;
     }
 
     await tx.tanneryLot.update({ where: { id: lot.id }, data: { status: "IN_PROCESS", currentProcessCode: process.code } });
-    if (data.machineId) await tx.machine.update({ where: { id: data.machineId }, data: { status: "IN_USE" } });
     await tx.lotMovement.create({ data: { lotId: lot.id, type: "PROCESS_IN", hidesQuantity: lot.currentHides, weightKg: lot.currentWeightKg, reference: `${process.code}:${executionId}` } });
     return { lot, process, executionId };
   });
@@ -57,11 +66,16 @@ export async function completeProcess(formData: FormData) {
   const data = completeSchema.parse({ executionId: formData.get("executionId"), outputHides: formData.get("outputHides"), outputWeightKg: formData.get("outputWeightKg"), temperatureC: rawTemp === "" ? undefined : rawTemp, ph: rawPh === "" ? undefined : rawPh, notes: formData.get("notes") || undefined });
 
   const result = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "LotProcess" WHERE id = ${data.executionId} FOR UPDATE`;
     const execution = await tx.lotProcess.findUniqueOrThrow({ where: { id: data.executionId }, include: { lot: true, process: true } });
     if (execution.status !== "IN_PROGRESS") throw new Error("El proceso ya no está activo.");
     if (data.outputHides > execution.lot.currentHides) throw new Error("La salida no puede exceder las pieles actuales del lote.");
 
-    await tx.lotProcess.update({ where: { id: execution.id }, data: { status: "COMPLETED", completedAt: new Date(), outputHides: data.outputHides, outputWeightKg: data.outputWeightKg, temperatureC: data.temperatureC, ph: data.ph, notes: data.notes } });
+    const completed = await tx.lotProcess.updateMany({
+      where: { id: execution.id, status: "IN_PROGRESS" },
+      data: { status: "COMPLETED", completedAt: new Date(), outputHides: data.outputHides, outputWeightKg: data.outputWeightKg, temperatureC: data.temperatureC, ph: data.ph, notes: data.notes }
+    });
+    if (completed.count !== 1) throw new Error("El proceso fue cerrado por otro usuario. Actualiza la pantalla.");
 
     const remaining = await tx.lotProcess.count({ where: { lotId: execution.lotId, status: { in: ["PENDING", "IN_PROGRESS"] } } });
     const routeFinished = remaining === 0 && Boolean(execution.productionOrderId) && Boolean(execution.routeStepId);
@@ -69,7 +83,9 @@ export async function completeProcess(formData: FormData) {
     const nextStatus = awaitingQualityRelease ? "ON_HOLD" : routeFinished ? "COMPLETED" : "IN_PROCESS";
 
     const updatedLot = await tx.tanneryLot.update({ where: { id: execution.lotId }, data: { currentHides: data.outputHides, currentWeightKg: data.outputWeightKg, currentProcessCode: execution.process.code, status: nextStatus } });
-    if (execution.machineId) await tx.machine.update({ where: { id: execution.machineId }, data: { status: "AVAILABLE" } });
+    if (execution.machineId) {
+      await tx.machine.updateMany({ where: { id: execution.machineId, status: "IN_USE" }, data: { status: "AVAILABLE" } });
+    }
 
     await tx.lotMovement.create({ data: { lotId: execution.lotId, type: "PROCESS_OUT", hidesQuantity: data.outputHides, weightKg: data.outputWeightKg, reference: execution.process.code, notes: data.notes } });
 
