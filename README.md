@@ -10,32 +10,34 @@ Estado: completadas en su alcance inicial.
 Incluyen recepción/lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración, costos/contabilidad, dashboard ejecutivo, operación de piso y auditoría operacional.
 
 ### Endurecimiento para producción — Etapa 2
-Estado: en progreso.
+Estado: en progreso avanzado.
 
 Implementado:
 
 - login obligatorio para acceder al ERP;
-- sesión firmada con `AUTH_SECRET`;
-- cookie de sesión `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
-- duración de sesión de 8 horas;
-- autorización de rutas por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
-- helpers `requireUser` y `requireRole` para server actions;
-- credenciales individuales almacenadas como hash bcrypt en PostgreSQL;
-- `sessionVersion` por usuario para invalidar sesiones tras cambios de seguridad;
-- fecha del último acceso;
-- administración de usuarios desde `/configuracion`;
-- alta de usuarios con uno o varios roles;
-- activación/desactivación de cuentas;
-- cambio de roles con revocación de sesiones anteriores;
-- restablecimiento de contraseña con revocación de sesiones anteriores;
-- bloqueo para impedir que un administrador se desactive a sí mismo desde la pantalla de usuarios;
+- sesión firmada con `AUTH_SECRET` y duración de 8 horas;
+- cookie `HttpOnly`, `SameSite=Lax` y `Secure` en producción;
+- autorización por roles ADMIN, PRODUCTION, WAREHOUSE, QUALITY, SALES, PURCHASING y FINANCE;
+- credenciales individuales con hash bcrypt en PostgreSQL;
+- `sessionVersion` para revocar sesiones tras cambios de seguridad;
+- último acceso por usuario;
+- administración de usuarios/roles desde `/configuracion`;
+- activación, desactivación, cambio de roles y restablecimiento de contraseña;
 - auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
-- `/auditoria` ahora muestra auditoría real por usuario además de la cronología operacional;
-- ventas, compras y finanzas protegidas por rol y con validaciones reforzadas;
-- compuerta de calidad: finalizar QUALITY ya no libera producto terminado automáticamente; la liberación ocurre tras aprobación explícita;
-- seed de ruta productiva seguro: ya no elimina todos los pasos al ejecutarse;
+- auditoría en usuarios, ventas, compras, finanzas, producción, calidad y genealogía de lotes;
+- `/auditoria` con auditoría real por usuario y cronología operacional;
 - folios resistentes a colisión en los flujos endurecidos;
-- CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript.
+- compuerta de calidad: QUALITY deja el lote en espera hasta liberación explícita;
+- producto terminado sólo se registra tras liberación de Calidad;
+- estado `CONSUMED` para lotes absorbidos por una fusión;
+- división de lote bloqueada durante procesos activos;
+- división copia al lote hijo los pasos pendientes de la ruta;
+- fusión bloqueada durante procesos activos y exige misma orden, etapa, artículo, color y ruta pendiente;
+- pasos pendientes del lote absorbido se cancelan tras una fusión válida;
+- cierre de orden trata `COMPLETED`, `REJECTED`, `CANCELLED` y `CONSUMED` como estados terminales;
+- seed seguro: no elimina pasos de rutas existentes y no vuelve a sobrescribir una contraseña de administrador ya inicializada;
+- CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript;
+- esquema Prisma corregido a sintaxis válida de enums y verificado por CI.
 
 ## Requisitos
 
@@ -56,17 +58,17 @@ AUTH_BOOTSTRAP_PASSWORD="una-contrasena-unica-de-minimo-12-caracteres"
 AUTH_BOOTSTRAP_NAME="Administrador"
 ```
 
-`AUTH_BOOTSTRAP_PASSWORD` se usa durante el seed para crear/actualizar el administrador inicial y se almacena en PostgreSQL únicamente como hash bcrypt. No uses los valores de ejemplo en producción y nunca subas `.env` al repositorio.
+`AUTH_BOOTSTRAP_PASSWORD` sólo inicializa la contraseña si el administrador todavía no existe o no tiene hash. Después, ejecutar nuevamente el seed no reemplaza su contraseña. Nunca subas `.env` al repositorio.
 
 ## Actualizar una instalación existente
 
-Esta etapa sí modifica el esquema de Prisma:
+Esta etapa modifica el esquema de Prisma por usuarios/auditoría y por el estado `CONSUMED`:
 
 ```bash
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name hardening_users_audit
+npm run db:migrate -- --name hardening_users_audit_lots
 npm run db:seed
 npm run dev
 ```
@@ -102,13 +104,13 @@ Requisición → Orden de compra → Recepción → Inventario → Factura prove
 
 ## Próximos pasos de endurecimiento
 
-1. ampliar `AuditLog` a todas las acciones operativas críticas, no sólo seguridad/usuarios;
-2. proteger las server actions restantes con `requireRole`;
-3. reemplazar los folios timestamp restantes por el generador robusto;
-4. concurrencia transaccional en inventario químico, pagos y procesos;
-5. endurecer división/fusión de lotes y estados terminales;
-6. cambio de contraseña por el propio usuario y recuperación controlada;
-7. órdenes de mantenimiento preventivo/correctivo y refacciones;
-8. almacenamiento real de fotografías/PDF/XML;
-9. PWA/offline para piso;
-10. worker Windows para CONTPAQi, backups, monitoreo y despliegue productivo.
+1. proteger y auditar las server actions restantes de inventario, recetas, costos, recepciones y operación;
+2. concurrencia transaccional estricta en inventario químico, pagos y procesos;
+3. cambio de contraseña por el propio usuario y recuperación controlada;
+4. auditoría atómica dentro de las mismas transacciones críticas;
+5. órdenes de mantenimiento preventivo/correctivo y refacciones;
+6. almacenamiento real de fotografías/PDF/XML;
+7. PWA/offline para piso;
+8. pruebas de integración con PostgreSQL real y escenarios concurrentes;
+9. worker Windows para CONTPAQi;
+10. backups, monitoreo y despliegue productivo.
