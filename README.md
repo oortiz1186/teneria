@@ -4,60 +4,40 @@ ERP especializado para operación integral de tenerías.
 
 ## Estado actual
 
-### Fase 1 — Base + recepción/lotes
-Estado: completada.
+### Fases 1 a 7
+Estado: completadas en su alcance inicial.
 
-Incluye PostgreSQL propio con Docker, usuarios/roles, proveedores/clientes, almacenes, recepción de piel, creación automática de lote, catálogo de procesos, movimientos y dashboard inicial.
+Incluyen recepción y lotes, producción, inventarios/químicos/recetas, calidad, comercial, compras/administración y costos/contabilidad.
 
-### Fase 2 — Producción
-Estado: completada en su alcance inicial.
-
-Incluye órdenes de producción, rutas configurables, asignación de lotes, máquinas/bombos, inicio/cierre de procesos, peso y pieles de entrada/salida, pH, temperatura, merma, división/mezcla, genealogía, QR, trazabilidad y cierre automático hacia producto terminado.
-
-### Fase 3 — Inventarios, químicos y recetas
-Estado: completada en su alcance inicial.
-
-Incluye catálogo de químicos, existencias por lote físico, proveedores, almacenes, costos, caducidades, mínimos, recetas por proceso, cantidades teóricas, consumo real, descuento automático de inventario y costo químico por lote/proceso.
-
-### Fase 4 — Calidad
-Estado: completada en su alcance inicial.
-
-Incluye inspecciones por lote/proceso, clasificación, espesor, área, resultados de pruebas, defectos, severidad, evidencia, liberación, retención, rechazo y reproceso.
-
-### Fase 5 — Comercial
-Estado: completada en su alcance inicial.
-
-Incluye clientes, artículos comerciales, precios, cotizaciones, pedidos, generación automática de órdenes de producción, remisiones y trazabilidad Pedido → Producción → Lote → Entrega.
-
-### Fase 6 — Compras y administración
-Estado: completada en su alcance inicial.
-
-Incluye requisiciones, órdenes de compra, recepciones, inventario, facturas de proveedor, CxP, CxC, pagos, cobros, gastos y referencias fiscales externas.
-
-### Fase 7 — Costos y contabilidad
+### Fase 8 — Indicadores y piso
 Estado: completada en su alcance inicial.
 
 Implementado:
 
-- costo integral por lote;
-- costo de piel de origen prorrateado por peso del lote;
-- costo químico real tomado de consumos registrados;
-- mano de obra asignable por lote/proceso;
-- agua y energía;
-- costo de maquinaria;
-- costo de reproceso;
-- gastos indirectos/overhead;
-- otros costos manuales auditables;
-- detalle por categoría de costo;
-- snapshot de costo recalculable por lote;
-- costo unitario por piel, kg y dm² cuando existe el dato de salida;
-- margen por pedido usando venta sin IVA contra costo de los lotes producidos;
-- cola de integración contable;
-- estados PENDING / PROCESSING / EXPORTED / ERROR / RECONCILED;
-- cola preparada para facturas de proveedor, CxC, pagos, gastos, pedidos y órdenes de compra;
-- estructura preparada para un worker/conector de CONTPAQi.
+- dashboard ejecutivo con KPIs de producción;
+- lotes en proceso y terminados;
+- órdenes de producción activas y vencidas;
+- alertas de inventario mínimo;
+- equipos en mantenimiento;
+- CxC y CxP pendientes;
+- costo acumulado y margen comercial;
+- accesos rápidos a módulos operativos;
+- módulo `/operacion` optimizado para piso;
+- procesos activos por lote, máquina e inicio;
+- disponibilidad de máquinas;
+- envío básico de equipo a mantenimiento y liberación;
+- alertas de inventario para operación;
+- indicadores ambientales iniciales basados en registros WATER y ENERGY del costeo;
+- actividad reciente de movimientos de lote;
+- vista `/auditoria` con cronología consolidada de producción, inventario, calidad y finanzas;
+- navegación responsive para tablet y celular;
+- menú móvil horizontal persistente;
+- tablas con desplazamiento horizontal en pantallas pequeñas;
+- tarjetas y formularios adaptables a móvil.
 
-El sistema no genera pólizas fiscales ni escribe directamente en CONTPAQi todavía. La cola de sincronización desacopla el ERP del futuro conector Windows/CONTPAQi y permite reintentos, auditoría y conciliación.
+La auditoría actual consolida los eventos ya registrados por los módulos. La auditoría avanzada de usuario, IP y valores antes/después se implementará junto con autenticación/autorización completa.
+
+El mantenimiento de esta fase controla disponibilidad y estado básico del equipo. Órdenes de mantenimiento, refacciones, técnicos, calendario preventivo y costos de mantenimiento pueden agregarse en una fase posterior de endurecimiento operativo.
 
 ## Requisitos
 
@@ -66,6 +46,17 @@ El sistema no genera pólizas fiscales ni escribe directamente en CONTPAQi todav
 - npm
 
 ## Actualizar una instalación existente
+
+Si ya aplicaste la migración de Fase 7, esta fase no agrega tablas nuevas:
+
+```bash
+git pull
+npm install
+npm run db:generate
+npm run dev
+```
+
+Si todavía no has aplicado Fase 7:
 
 ```bash
 git pull
@@ -78,13 +69,10 @@ npm run dev
 
 Abrir:
 
-http://localhost:3000
-
-Módulos principales:
-
-- `/compras`
-- `/finanzas`
-- `/costos`
+- `http://localhost:3000` — Dashboard ejecutivo
+- `http://localhost:3000/operacion` — Piso / operación
+- `http://localhost:3000/auditoria` — Auditoría operacional
+- `http://localhost:3000/costos` — Costos y margen
 
 Configurar en `.env` la URL pública usada por los QR cuando el sistema se despliegue:
 
@@ -92,33 +80,25 @@ Configurar en `.env` la URL pública usada por los QR cuando el sistema se despl
 NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
 ```
 
-## Flujo operativo actual
+## Flujo integral actual
 
-Compra:
+Recepción → Lote → Pedido/Orden de producción → Ruta → Máquina/Proceso → Receta → Consumo químico → Calidad → Producto terminado → Remisión → CxC → Cobro → Costeo/Margen → Cola contable.
+
+Compras:
 
 Requisición → Orden de compra → Recepción → Inventario → Factura proveedor → CxP → Pago.
 
-Venta:
+## Siguiente etapa recomendada
 
-Cliente → Cotización → Pedido → Producción → Lote → Calidad → Remisión → CxC → Cobro.
+Con las ocho fases iniciales cubiertas, el siguiente trabajo ya no debería ser agregar módulos indiscriminadamente, sino endurecer el ERP para uso real:
 
-Costeo:
-
-Recepción de piel + Consumo químico + Mano de obra + Agua/Energía + Máquina + Reproceso + Indirectos → Costo integral del lote → Costo unitario → Margen por pedido.
-
-Contabilidad:
-
-Documento operativo → Cola de sincronización → Worker CONTPAQi (fase de integración posterior) → Estado exportado/conciliado.
-
-## Roadmap
-
-### Fase 8 — Indicadores y piso
-- dashboards ejecutivos
-- interfaz optimizada para tablet/celular
-- alertas
-- auditoría
-- mantenimiento
-- indicadores ambientales
-- productividad por máquina/proceso
-- tiempos de ciclo y cuellos de botella
-- indicadores de calidad, inventario, ventas, cartera y margen
+1. autenticación y permisos reales por rol;
+2. auditoría antes/después por usuario;
+3. pruebas automáticas y validación de concurrencia;
+4. folios transaccionales robustos;
+5. órdenes de mantenimiento preventivo/correctivo;
+6. carga real de fotografías/documentos;
+7. PWA/offline para piso;
+8. worker Windows para CONTPAQi;
+9. despliegue productivo, backups y monitoreo;
+10. ajuste de catálogos, rutas y recetas con el proceso real de la tenería.
