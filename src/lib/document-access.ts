@@ -26,9 +26,12 @@ const roleMap: Record<DocumentEntityType, string[]> = {
   SALES_ORDER: ["SALES", "FINANCE"]
 };
 
+export function canAccessDocumentType(user: AppUser, entityType: DocumentEntityType) {
+  return user.roles.includes("ADMIN") || roleMap[entityType].some(role => user.roles.includes(role));
+}
+
 export function assertDocumentRole(user: AppUser, entityType: DocumentEntityType) {
-  if (user.roles.includes("ADMIN")) return;
-  if (!roleMap[entityType].some(role => user.roles.includes(role))) {
+  if (!canAccessDocumentType(user, entityType)) {
     throw new Error("No tienes permisos para consultar documentos de esta entidad.");
   }
 }
