@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireRole } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 
 const schema = z.object({
   lotProcessId: z.string().min(1),
@@ -11,13 +13,14 @@ const schema = z.object({
 });
 
 export async function registerConsumption(formData: FormData) {
+  const actor = await requireRole(["PRODUCTION", "WAREHOUSE"]);
   const data = schema.parse({
     lotProcessId: formData.get("lotProcessId"),
     chemicalLotId: formData.get("chemicalLotId"),
     actualQuantity: formData.get("actualQuantity")
   });
 
-  await prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     const execution = await tx.lotProcess.findUniqueOrThrow({
       where: { id: data.lotProcessId },
       include: { process: true }
@@ -28,10 +31,14 @@ export async function registerConsumption(formData: FormData) {
       where: { id: data.chemicalLotId },
       include: { chemical: true }
     });
-    if (Number(chemicalLot.currentQuantity) < data.actualQuantity) throw new Error("Existencia insuficiente del lote químico seleccionado.");
 
     const recipe = await tx.recipe.findFirst({
-      where: { processId: execution.processId, active: true },
+      where: {
+        processId: execution.processId,
+        active: true,
+        effectiveFrom: { lte: new Date() },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }]
+      },
       orderBy: [{ version: "desc" }, { effectiveFrom: "desc" }],
       include: { items: true }
     });
@@ -40,16 +47,26 @@ export async function registerConsumption(formData: FormData) {
     let theoreticalQuantity: number | undefined;
     if (item) {
       if (item.basis === "WEIGHT_PERCENT") {
+        if (!["kg", "g"].includes(chemicalLot.chemical.unit.toLowerCase())) {
+          throw new Error("Una receta porcentual sobre peso sólo puede consumir químicos con unidad de masa (kg/g).");
+        }
         theoreticalQuantity = Number(execution.inputWeightKg ?? 0) * (Number(item.quantity) / 100);
+        if (chemicalLot.chemical.unit.toLowerCase() === "g") theoreticalQuantity *= 1000;
       } else {
         theoreticalQuantity = Number(item.quantity);
       }
     }
 
+    const stockUpdate = await tx.chemicalLot.updateMany({
+      where: { id: chemicalLot.id, currentQuantity: { gte: data.actualQuantity } },
+      data: { currentQuantity: { decrement: data.actualQuantity } }
+    });
+    if (stockUpdate.count !== 1) throw new Error("Existencia insuficiente. Otro usuario pudo consumir este lote al mismo tiempo; actualiza la pantalla e intenta de nuevo.");
+
     const unitCost = chemicalLot.unitCost ? Number(chemicalLot.unitCost) : undefined;
     const totalCost = unitCost == null ? undefined : unitCost * data.actualQuantity;
 
-    await tx.processChemicalConsumption.create({
+    const consumption = await tx.processChemicalConsumption.create({
       data: {
         lotProcessId: execution.id,
         chemicalId: chemicalLot.chemicalId,
@@ -59,11 +76,6 @@ export async function registerConsumption(formData: FormData) {
         unitCost,
         totalCost
       }
-    });
-
-    await tx.chemicalLot.update({
-      where: { id: chemicalLot.id },
-      data: { currentQuantity: { decrement: data.actualQuantity } }
     });
 
     await tx.chemicalStockMovement.create({
@@ -77,6 +89,25 @@ export async function registerConsumption(formData: FormData) {
         reference: `${execution.lotId}:${execution.process.code}`
       }
     });
+
+    const updatedLot = await tx.chemicalLot.findUniqueOrThrow({ where: { id: chemicalLot.id } });
+    return { consumption, execution, chemicalLot, updatedLot, recipeId: recipe?.id ?? null };
+  });
+
+  await writeAuditLog({
+    actor,
+    action: "CHEMICAL_CONSUMPTION_REGISTERED",
+    entityType: "ChemicalLot",
+    entityId: data.chemicalLotId,
+    before: { currentQuantity: result.chemicalLot.currentQuantity },
+    after: {
+      currentQuantity: result.updatedLot.currentQuantity,
+      actualQuantity: data.actualQuantity,
+      consumptionId: result.consumption.id,
+      lotProcessId: result.execution.id,
+      processCode: result.execution.process.code,
+      recipeId: result.recipeId
+    }
   });
 
   revalidatePath("/inventario");
