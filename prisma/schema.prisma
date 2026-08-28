@@ -19,6 +19,7 @@ enum LotStatus {
   COMPLETED
   REJECTED
   CANCELLED
+  CONSUMED
 }
 
 enum ReceiptStatus {
