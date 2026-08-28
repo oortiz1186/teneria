@@ -39,10 +39,15 @@ model User {
   id String @id @default(cuid())
   name String
   email String @unique
+  passwordHash String?
+  mustChangePassword Boolean @default(false)
+  sessionVersion Int @default(0)
+  lastLoginAt DateTime?
   status UserStatus @default(ACTIVE)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   roles UserRole[]
+  auditLogs AuditLog[]
 }
 model Role { id String @id @default(cuid()) code String @unique name String description String? users UserRole[] }
 model UserRole { userId String roleId String user User @relation(fields:[userId],references:[id],onDelete:Cascade) role Role @relation(fields:[roleId],references:[id],onDelete:Cascade) @@id([userId,roleId]) }
@@ -867,4 +872,23 @@ model AccountingSyncQueue {
   updatedAt DateTime @updatedAt
   @@index([status,queuedAt])
   @@index([entityType,entityId])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  userId String?
+  userEmail String?
+  action String
+  entityType String
+  entityId String?
+  beforeJson Json?
+  afterJson Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user User? @relation(fields:[userId],references:[id],onDelete:SetNull)
+  @@index([createdAt])
+  @@index([userId,createdAt])
+  @@index([entityType,entityId])
+  @@index([action])
 }
