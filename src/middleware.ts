@@ -4,12 +4,15 @@ import { SESSION_COOKIE, verifySession } from "@/lib/auth-token";
 const PUBLIC_PATHS = ["/login", "/favicon.ico"];
 
 const roleRules: Array<{ prefix: string; roles: string[] }> = [
+  { prefix: "/operacion", roles: ["PRODUCTION", "WAREHOUSE", "QUALITY"] },
+  { prefix: "/recepciones", roles: ["WAREHOUSE", "PURCHASING", "PRODUCTION"] },
+  { prefix: "/lotes", roles: ["PRODUCTION", "WAREHOUSE", "QUALITY"] },
   { prefix: "/produccion", roles: ["PRODUCTION"] },
   { prefix: "/inventario", roles: ["WAREHOUSE", "PRODUCTION"] },
   { prefix: "/almacenes", roles: ["WAREHOUSE"] },
   { prefix: "/calidad", roles: ["QUALITY"] },
   { prefix: "/ventas", roles: ["SALES"] },
-  { prefix: "/compras", roles: ["PURCHASING"] },
+  { prefix: "/compras", roles: ["PURCHASING", "WAREHOUSE"] },
   { prefix: "/finanzas", roles: ["FINANCE"] },
   { prefix: "/costos", roles: ["FINANCE"] },
   { prefix: "/auditoria", roles: ["ADMIN"] },
