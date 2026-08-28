@@ -23,6 +23,16 @@ const quoteSchema = z.object({
   notes: z.string().optional()
 });
 
+export async function createCustomer(formData: FormData) {
+  const name = z.string().min(2).parse(formData.get("name"));
+  const taxId = z.string().optional().parse(formData.get("taxId") || undefined);
+  const phone = z.string().optional().parse(formData.get("phone") || undefined);
+  const email = z.string().optional().parse(formData.get("email") || undefined);
+  const suffix = `${Date.now()}`.slice(-6);
+  await prisma.customer.create({ data: { code: `CLI-${suffix}`, name: name.trim(), taxId, phone, email } });
+  revalidatePath("/ventas");
+}
+
 export async function createCommercialProduct(formData: FormData) {
   const data = productSchema.parse({
     code: formData.get("code"),
@@ -63,17 +73,7 @@ export async function createQuote(formData: FormData) {
       tax,
       total,
       notes: data.notes,
-      items: {
-        create: {
-          productId: product.id,
-          description: product.name,
-          quantity: data.quantity,
-          unitPrice: data.unitPrice,
-          subtotal,
-          tax,
-          total
-        }
-      }
+      items: { create: { productId: product.id, description: product.name, quantity: data.quantity, unitPrice: data.unitPrice, subtotal, tax, total } }
     }
   });
 
@@ -90,7 +90,7 @@ export async function acceptQuoteAndCreateOrder(formData: FormData) {
   const quoteId = z.string().min(1).parse(formData.get("quoteId"));
 
   await prisma.$transaction(async (tx) => {
-    const quote = await tx.salesQuote.findUniqueOrThrow({ where: { id: quoteId }, include: { items: true } });
+    const quote = await tx.salesQuote.findUniqueOrThrow({ where: { id: quoteId }, include: { items: true, salesOrder: true } });
     if (quote.salesOrder) throw new Error("La cotización ya tiene pedido.");
 
     const suffix = `${Date.now()}`.slice(-8);
@@ -105,17 +105,7 @@ export async function acceptQuoteAndCreateOrder(formData: FormData) {
         tax: quote.tax,
         total: quote.total,
         notes: quote.notes,
-        items: {
-          create: quote.items.map(item => ({
-            productId: item.productId,
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subtotal: item.subtotal,
-            tax: item.tax,
-            total: item.total
-          }))
-        }
+        items: { create: quote.items.map(item => ({ productId: item.productId, description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, subtotal: item.subtotal, tax: item.tax, total: item.total })) }
       }
     });
   });
@@ -127,10 +117,7 @@ export async function confirmSalesOrder(formData: FormData) {
   const salesOrderId = z.string().min(1).parse(formData.get("salesOrderId"));
 
   await prisma.$transaction(async (tx) => {
-    const order = await tx.salesOrder.findUniqueOrThrow({
-      where: { id: salesOrderId },
-      include: { items: { include: { product: true } }, productionOrders: true }
-    });
+    const order = await tx.salesOrder.findUniqueOrThrow({ where: { id: salesOrderId }, include: { items: { include: { product: true } }, productionOrders: true } });
     if (order.status !== "DRAFT") throw new Error("El pedido ya fue confirmado o cerrado.");
 
     let counter = 0;
