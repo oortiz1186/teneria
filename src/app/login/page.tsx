@@ -1,6 +1,6 @@
 import { loginAction } from "./actions";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; passwordChanged?: string }> }) {
   const params = await searchParams;
   return (
     <div className="login-shell">
@@ -10,6 +10,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <h1 className="title">Iniciar sesión</h1>
           <p className="muted">Acceso restringido a personal autorizado.</p>
         </div>
+        {params.passwordChanged ? <div className="alert" style={{ background: "#eefaf1", color: "#216e39", border: "1px solid #cdebd5" }}>Contraseña actualizada. Inicia sesión nuevamente.</div> : null}
         {params.error ? <div className="alert alert-danger">Correo o contraseña incorrectos.</div> : null}
         <form action={loginAction} className="form" style={{ gridTemplateColumns: "1fr" }}>
           <div className="field"><label>Correo</label><input name="email" type="email" autoComplete="username" required /></div>
