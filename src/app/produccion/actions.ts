@@ -4,16 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit";
+import { getAuditContext, writeAuditLogWithClient } from "@/lib/audit";
 
 const startSchema = z.object({ lotId: z.string().min(1), processId: z.string().min(1), machineId: z.string().optional() });
 const completeSchema = z.object({ executionId: z.string().min(1), outputHides: z.coerce.number().int().nonnegative(), outputWeightKg: z.coerce.number().nonnegative(), temperatureC: z.coerce.number().optional(), ph: z.coerce.number().optional(), notes: z.string().optional() });
 
 export async function startProcess(formData: FormData) {
   const actor = await requireRole(["PRODUCTION"]);
+  const auditContext = await getAuditContext();
   const data = startSchema.parse({ lotId: formData.get("lotId"), processId: formData.get("processId"), machineId: formData.get("machineId") || undefined });
 
-  const result = await prisma.$transaction(async tx => {
+  await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "TanneryLot" WHERE id = ${data.lotId} FOR UPDATE`;
     const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: data.lotId } });
     if (["COMPLETED", "REJECTED", "CANCELLED", "CONSUMED"].includes(lot.status)) throw new Error("El lote está cerrado y no admite nuevos procesos.");
@@ -52,20 +53,29 @@ export async function startProcess(formData: FormData) {
 
     await tx.tanneryLot.update({ where: { id: lot.id }, data: { status: "IN_PROCESS", currentProcessCode: process.code } });
     await tx.lotMovement.create({ data: { lotId: lot.id, type: "PROCESS_IN", hidesQuantity: lot.currentHides, weightKg: lot.currentWeightKg, reference: `${process.code}:${executionId}` } });
-    return { lot, process, executionId };
+
+    await writeAuditLogWithClient(tx, {
+      actor,
+      context: auditContext,
+      action: "PROCESS_STARTED",
+      entityType: "LotProcess",
+      entityId: executionId,
+      before: { lotStatus: lot.status, currentProcessCode: lot.currentProcessCode },
+      after: { lotId: lot.id, lotFolio: lot.folio, processId: process.id, processCode: process.code, machineId: data.machineId ?? null, inputHides: lot.currentHides, inputWeightKg: lot.currentWeightKg }
+    });
   });
 
-  await writeAuditLog({ actor, action: "PROCESS_STARTED", entityType: "LotProcess", entityId: result.executionId, before: { lotStatus: result.lot.status, currentProcessCode: result.lot.currentProcessCode }, after: { lotId: result.lot.id, lotFolio: result.lot.folio, processId: result.process.id, processCode: result.process.code, machineId: data.machineId ?? null, inputHides: result.lot.currentHides, inputWeightKg: result.lot.currentWeightKg } });
   revalidatePath("/produccion"); revalidatePath("/lotes"); revalidatePath("/");
 }
 
 export async function completeProcess(formData: FormData) {
   const actor = await requireRole(["PRODUCTION"]);
+  const auditContext = await getAuditContext();
   const rawTemp = formData.get("temperatureC");
   const rawPh = formData.get("ph");
   const data = completeSchema.parse({ executionId: formData.get("executionId"), outputHides: formData.get("outputHides"), outputWeightKg: formData.get("outputWeightKg"), temperatureC: rawTemp === "" ? undefined : rawTemp, ph: rawPh === "" ? undefined : rawPh, notes: formData.get("notes") || undefined });
 
-  const result = await prisma.$transaction(async tx => {
+  await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "LotProcess" WHERE id = ${data.executionId} FOR UPDATE`;
     const execution = await tx.lotProcess.findUniqueOrThrow({ where: { id: data.executionId }, include: { lot: true, process: true } });
     if (execution.status !== "IN_PROGRESS") throw new Error("El proceso ya no está activo.");
@@ -98,9 +108,17 @@ export async function completeProcess(formData: FormData) {
       const unfinishedLots = await tx.tanneryLot.count({ where: { productionOrderId: execution.productionOrderId, status: { notIn: ["COMPLETED", "REJECTED", "CANCELLED", "CONSUMED"] } } });
       if (unfinishedLots === 0) await tx.productionOrder.update({ where: { id: execution.productionOrderId }, data: { status: "COMPLETED" } });
     }
-    return { execution, updatedLot, routeFinished, awaitingQualityRelease };
+
+    await writeAuditLogWithClient(tx, {
+      actor,
+      context: auditContext,
+      action: "PROCESS_COMPLETED",
+      entityType: "LotProcess",
+      entityId: data.executionId,
+      before: { lotStatus: execution.lot.status, hides: execution.lot.currentHides, weightKg: execution.lot.currentWeightKg },
+      after: { lotId: execution.lotId, lotFolio: execution.lot.folio, processCode: execution.process.code, outputHides: data.outputHides, outputWeightKg: data.outputWeightKg, temperatureC: data.temperatureC, ph: data.ph, lotStatus: updatedLot.status, routeFinished, awaitingQualityRelease }
+    });
   });
 
-  await writeAuditLog({ actor, action: "PROCESS_COMPLETED", entityType: "LotProcess", entityId: data.executionId, before: { lotStatus: result.execution.lot.status, hides: result.execution.lot.currentHides, weightKg: result.execution.lot.currentWeightKg }, after: { lotId: result.execution.lotId, lotFolio: result.execution.lot.folio, processCode: result.execution.process.code, outputHides: data.outputHides, outputWeightKg: data.outputWeightKg, temperatureC: data.temperatureC, ph: data.ph, lotStatus: result.updatedLot.status, routeFinished: result.routeFinished, awaitingQualityRelease: result.awaitingQualityRelease } });
   revalidatePath("/produccion"); revalidatePath("/produccion/ordenes"); revalidatePath("/lotes"); revalidatePath("/calidad"); revalidatePath("/");
 }
