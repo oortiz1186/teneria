@@ -17,33 +17,29 @@ Incluye órdenes de producción, rutas configurables, asignación de lotes, máq
 ### Fase 3 — Inventarios, químicos y recetas
 Estado: completada en su alcance inicial.
 
+Incluye catálogo de químicos, existencias por lote físico, proveedores, almacenes, costos, caducidades, mínimos, recetas por proceso, cantidades teóricas, consumo real, descuento automático de inventario y costo químico por lote/proceso.
+
+### Fase 4 — Calidad
+Estado: completada en su alcance inicial.
+
 Implementado:
 
-- catálogo de productos químicos;
-- categorías y unidades de medida;
-- existencia mínima por producto;
-- almacén específico de químicos;
-- lotes físicos por producto químico;
-- proveedor y número de lote;
-- fecha de recepción y caducidad;
-- cantidad inicial y existencia actual;
-- costo unitario por lote químico;
-- movimientos de entrada y consumo;
-- alertas visuales de mínimo de existencia;
-- alerta de lotes próximos a caducar;
-- recetas vinculadas a procesos;
-- versionado base de recetas;
-- componentes secuenciados de receta;
-- dos bases de cálculo: porcentaje sobre peso y cantidad fija;
-- tolerancia por componente;
-- registro de consumo real por proceso activo;
-- selección del lote físico de químico consumido;
-- descuento automático de inventario;
-- validación de existencia disponible;
-- cálculo de cantidad teórica según receta y peso de entrada;
-- comparación teórico vs real;
-- costo real del químico consumido por proceso y lote;
-- historial de consumos químicos.
+- inspecciones de calidad por lote;
+- clasificación/grado;
+- espesor en mm y área en dm²;
+- resultados de color, visual, resistencia, adherencia y flexión;
+- inspector y observaciones;
+- catálogo de defectos típicos precargado;
+- severidad de defectos;
+- pieles y área afectada;
+- evidencia documental/fotográfica mediante URL;
+- liberación de lote;
+- retención;
+- rechazo;
+- reproceso;
+- actualización automática del estado operativo del lote;
+- movimiento de rechazo en trazabilidad;
+- panel de indicadores de inspecciones aprobadas, rechazadas y en reproceso.
 
 ## Requisitos
 
@@ -57,7 +53,7 @@ Implementado:
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase3_inventario_quimicos_recetas
+npm run db:migrate -- --name fase4_calidad
 npm run db:seed
 npm run dev
 ```
@@ -74,21 +70,9 @@ NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
 
 ## Flujo actual
 
-Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Receta → Consumo químico → Control de salida → Siguiente proceso → Calidad → Producto terminado.
-
-Cada consumo químico queda asociado al `LotProcess`, por lo que se conserva la relación entre lote de producción, proceso, lote químico, cantidad real y costo.
+Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Receta → Consumo químico → Control de salida → Calidad → Liberación/Reproceso/Rechazo → Producto terminado.
 
 ## Roadmap
-
-### Fase 4 — Calidad
-- inspecciones y puntos de control
-- catálogo de defectos
-- clasificación/grado
-- pruebas y mediciones
-- rechazo parcial/total
-- reproceso
-- evidencia/fotos
-- liberación a producto terminado
 
 ### Fase 5 — Comercial
 - clientes
