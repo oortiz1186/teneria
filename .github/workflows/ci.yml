@@ -25,8 +25,23 @@ jobs:
       - name: Install
         run: npm install
       - name: Validate Prisma
-        run: npx prisma validate
+        run: |
+          set -o pipefail
+          npx prisma validate 2>&1 | tee prisma-validate.log
       - name: Generate Prisma client
+        if: success()
         run: npx prisma generate
       - name: TypeScript
-        run: npx tsc --noEmit
+        if: success()
+        run: |
+          set -o pipefail
+          npx tsc --noEmit 2>&1 | tee typescript.log
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs-${{ github.run_number }}
+          path: |
+            prisma-validate.log
+            typescript.log
+          if-no-files-found: ignore
