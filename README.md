@@ -22,24 +22,31 @@ Incluye catálogo de químicos, existencias por lote físico, proveedores, almac
 ### Fase 4 — Calidad
 Estado: completada en su alcance inicial.
 
+Incluye inspecciones por lote/proceso, clasificación, espesor, área, resultados de pruebas, defectos, severidad, evidencia, liberación, retención, rechazo y reproceso.
+
+### Fase 5 — Comercial
+Estado: completada en su alcance inicial.
+
 Implementado:
 
-- inspecciones de calidad por lote;
-- clasificación/grado;
-- espesor en mm y área en dm²;
-- resultados de color, visual, resistencia, adherencia y flexión;
-- inspector y observaciones;
-- catálogo de defectos típicos precargado;
-- severidad de defectos;
-- pieles y área afectada;
-- evidencia documental/fotográfica mediante URL;
-- liberación de lote;
-- retención;
-- rechazo;
-- reproceso;
-- actualización automática del estado operativo del lote;
-- movimiento de rechazo en trazabilidad;
-- panel de indicadores de inspecciones aprobadas, rechazadas y en reproceso.
+- alta rápida de clientes;
+- catálogo de artículos/piel comercial;
+- unidad comercial por pieza, kg, dm² o ft²;
+- precio base e IVA configurable por artículo;
+- asociación de artículo con ruta de producción;
+- cotizaciones con vigencia, subtotal, impuestos y total;
+- estados de cotización;
+- conversión de cotización aceptada a pedido;
+- pedidos comerciales;
+- confirmación de pedido;
+- generación automática de órdenes de producción desde el pedido;
+- relación Pedido → Orden de Producción → Lote;
+- remisiones de lotes terminados/liberados;
+- trazabilidad del lote entregado al cliente;
+- historial de remisiones;
+- estructura preparada para integración fiscal posterior.
+
+La facturación CFDI no se timbra directamente desde esta fase. El ERP conservará la operación comercial y posteriormente se integrará con CONTPAQi para timbrado, UUID, XML/PDF, cancelaciones, pagos y conciliación fiscal.
 
 ## Requisitos
 
@@ -53,7 +60,7 @@ Implementado:
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase4_calidad
+npm run db:migrate -- --name fase5_comercial
 npm run db:seed
 npm run dev
 ```
@@ -70,26 +77,20 @@ NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
 
 ## Flujo actual
 
-Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Receta → Consumo químico → Control de salida → Calidad → Liberación/Reproceso/Rechazo → Producto terminado.
+Cliente → Cotización → Pedido → Orden de producción → Lote → Ruta/Proceso → Receta/Consumo químico → Calidad → Producto terminado → Remisión.
 
 ## Roadmap
-
-### Fase 5 — Comercial
-- clientes
-- cotizaciones
-- pedidos
-- listas de precios
-- remisiones
-- facturación / integración CONTPAQi
 
 ### Fase 6 — Compras y administración
 - requisiciones
 - órdenes de compra
+- recepción contra OC
 - facturas de proveedor
 - CxP
 - CxC
-- pagos
+- pagos y cobranza
 - gastos
+- bancos/caja
 
 ### Fase 7 — Costos y contabilidad
 - costo integral por lote
