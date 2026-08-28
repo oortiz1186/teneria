@@ -14,17 +14,32 @@ async function main() {
   const machines = [["BOM-01","Bombo 01","Bombo",2500],["BOM-02","Bombo 02","Bombo",2500],["BOM-03","Bombo 03","Bombo",3500],["DESC-01","Descarnadora 01","Descarnadora",1500],["DIV-01","Divididora 01","Divididora",1200],["REB-01","Rebajadora 01","Rebajadora",1200]];
   for (const [code,name,type,capacityKg] of machines) await prisma.machine.upsert({ where:{code:String(code)}, update:{name:String(name),type:String(type),capacityKg:Number(capacityKg)}, create:{code:String(code),name:String(name),type:String(type),capacityKg:Number(capacityKg)} });
 
-  const route = await prisma.productionRoute.upsert({
-    where: { code: "FULL-CYCLE" },
-    update: { name: "Ciclo completo estándar", active: true },
-    create: { code: "FULL-CYCLE", name: "Ciclo completo estándar", description: "Ruta inicial configurable desde remojo hasta calidad." }
-  });
-
+  const route = await prisma.productionRoute.upsert({ where: { code: "FULL-CYCLE" }, update: { name: "Ciclo completo estándar", active: true }, create: { code: "FULL-CYCLE", name: "Ciclo completo estándar", description: "Ruta inicial configurable desde remojo hasta calidad." } });
   const routeCodes = ["SOAKING","LIMING","FLESHING","SPLITTING","DELIMING","PICKLING","TANNING","SAMMYING","SHAVING","RETANNING","DYEING","FATLIQUORING","DRYING","FINISHING","QUALITY"];
   await prisma.productionRouteStep.deleteMany({ where: { routeId: route.id } });
   for (let i = 0; i < routeCodes.length; i++) {
     const process = await prisma.processCatalog.findUniqueOrThrow({ where: { code: routeCodes[i] } });
     await prisma.productionRouteStep.create({ data: { routeId: route.id, processId: process.id, sequence: (i + 1) * 10 } });
+  }
+
+  const defects = [
+    ["SCAR","Cicatriz","Superficie","MEDIUM"],
+    ["HOLE","Agujero / perforación","Estructural","HIGH"],
+    ["WRINKLE","Arruga","Superficie","MEDIUM"],
+    ["COLOR","Variación de color","Acabado","MEDIUM"],
+    ["THICK","Espesor fuera de especificación","Dimensional","HIGH"],
+    ["GRAIN","Daño de flor","Superficie","HIGH"],
+    ["PEEL","Desprendimiento de acabado","Acabado","CRITICAL"],
+    ["STAIN","Mancha","Superficie","MEDIUM"],
+    ["SOFT","Suavidad fuera de especificación","Tacto","LOW"],
+    ["CRACK","Cuarteadura","Estructural","CRITICAL"]
+  ];
+  for (const [code,name,category,defaultSeverity] of defects) {
+    await prisma.qualityDefectCatalog.upsert({
+      where: { code: String(code) },
+      update: { name: String(name), category: String(category), defaultSeverity: defaultSeverity as any, active: true },
+      create: { code: String(code), name: String(name), category: String(category), defaultSeverity: defaultSeverity as any }
+    });
   }
 }
 
