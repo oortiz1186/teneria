@@ -1,23 +1,54 @@
-# Tenería ERP — Fase 1
+# Tenería ERP
 
-Base inicial de un ERP especializado para operación de tenerías.
+ERP especializado para operación de tenerías.
 
-## Alcance implementado
+## Estado actual
 
-- PostgreSQL propio con Docker.
-- Modelo de usuarios y roles.
-- Proveedores y clientes.
-- Almacenes.
-- Recepción de piel.
-- Creación automática de lote desde recepción.
-- Jerarquía de lotes para futuras divisiones y mezclas.
-- Catálogo de procesos de tenería.
-- Ejecución de procesos por lote.
-- Movimientos de lote/almacén.
-- Dashboard inicial.
-- Pantalla de recepción.
-- Listado de lotes.
-- Módulos futuros ya separados en navegación.
+### Fase 1 — Base + recepción/lotes
+Estado: completada.
+
+- PostgreSQL propio con Docker
+- usuarios y roles
+- proveedores y clientes
+- almacenes
+- recepción de piel
+- creación automática de lote
+- jerarquía de lotes
+- catálogo de procesos
+- movimientos de lote
+- dashboard inicial
+
+### Fase 2 — Producción
+Estado: en desarrollo, núcleo operativo implementado.
+
+Implementado:
+
+- catálogo de bombos/máquinas
+- estado de máquina: disponible, en uso, mantenimiento e inactiva
+- capacidad por máquina
+- inicio de proceso por lote
+- bloqueo para impedir dos procesos simultáneos sobre el mismo lote
+- bloqueo para impedir usar una máquina ocupada
+- captura automática de pieles y peso de entrada
+- captura de pieles y peso de salida
+- pH y temperatura
+- observaciones
+- liberación automática de máquina al finalizar
+- actualización del peso y cantidad actual del lote
+- movimientos PROCESS_IN / PROCESS_OUT
+- historial de procesos
+- cálculo visual de merma en kg y porcentaje
+- modelo base de órdenes de producción
+- relación orden de producción → lotes
+
+Pendiente para cerrar Fase 2:
+
+- pantalla CRUD de órdenes de producción
+- asignación de lote a orden
+- rutas de proceso predefinidas por artículo
+- división y mezcla de lotes desde interfaz
+- QR de lote
+- estados finales y envío a almacén terminado
 
 ## Requisitos
 
@@ -32,7 +63,7 @@ cp .env.example .env
 docker compose up -d
 npm install
 npm run db:generate
-npm run db:migrate -- --name init
+npm run db:migrate -- --name fase2_produccion
 npm run db:seed
 npm run dev
 ```
@@ -41,43 +72,16 @@ Abrir:
 
 http://localhost:3000
 
-## Decisiones de arquitectura
+## Arquitectura
 
-El `TanneryLot` es el centro de la trazabilidad. No se modeló el sistema alrededor de facturas ni pedidos porque el mayor riesgo operativo de una tenería está en perder la genealogía y transformación del lote.
+El `TanneryLot` es el centro de la trazabilidad. Cada ejecución queda registrada en `LotProcess` y cada entrada/salida relevante genera un `LotMovement`.
 
-La entidad admite `parentLotId`, de modo que posteriormente podremos registrar:
-
-- división de lotes;
-- mezcla de lotes;
-- reprocesos;
-- transformación entre etapas;
-- trazabilidad inversa desde producto terminado hasta recepción.
+Las órdenes comerciales y administrativas se conectarán al lote sin reemplazar esta trazabilidad.
 
 ## Roadmap
 
-### Fase 1 — Base + recepción/lotes
-Estado: iniciada.
-
-- Base PostgreSQL
-- Roles
-- Proveedores
-- Recepción
-- Lotes
-- Movimientos
-- Catálogo de procesos
-
-### Fase 2 — Producción
-- Órdenes de producción
-- Rutas de proceso
-- Bombos y máquinas
-- Inicio/fin de proceso
-- Pesos y cantidades
-- pH, temperatura y variables de proceso
-- División/mezcla
-- QR de lote
-
 ### Fase 3 — Inventario y químicos
-- Productos químicos
+- productos químicos
 - unidades
 - lotes/caducidad
 - entradas/salidas
@@ -128,7 +132,3 @@ Estado: iniciada.
 - auditoría
 - mantenimiento
 - indicadores ambientales
-
-## Próxima vertical recomendada
-
-Terminar completamente **Recepción → Lote → Proceso → Movimiento**, antes de construir ventas o contabilidad.
