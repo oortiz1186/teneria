@@ -46,16 +46,25 @@ export async function registerReceivablePayment(formData: FormData) {
   const receivableId = z.string().min(1).parse(formData.get("receivableId"));
   const amount = z.coerce.number().positive().parse(formData.get("amount"));
   const method = z.enum(["CASH","TRANSFER","CARD","CHECK","OTHER"]).parse(formData.get("method"));
+  const reference = String(formData.get("reference") || "") || null;
+
   const result = await prisma.$transaction(async tx => {
-    const ar = await tx.accountReceivable.findUniqueOrThrow({ where: { id: receivableId } });
-    if (!["OPEN", "PARTIALLY_PAID"].includes(ar.status)) throw new Error("La cuenta por cobrar ya no admite pagos.");
-    if (amount > Number(ar.balance)) throw new Error("El cobro excede el saldo pendiente.");
-    const payment = await tx.payment.create({ data: { folio: createFolio("COB"), direction: "INCOME", method, amount, reference: String(formData.get("reference") || "") || null } });
-    const newBalance = Math.max(0, Number(ar.balance) - amount);
-    await tx.paymentApplication.create({ data: { paymentId: payment.id, receivableId: ar.id, amount } });
-    const updated = await tx.accountReceivable.update({ where: { id: ar.id }, data: { balance: newBalance, status: newBalance <= 0.0001 ? "PAID" : "PARTIALLY_PAID" } });
-    return { payment, before: ar, after: updated };
+    const before = await tx.accountReceivable.findUniqueOrThrow({ where: { id: receivableId } });
+    const changed = await tx.accountReceivable.updateMany({
+      where: { id: receivableId, status: { in: ["OPEN", "PARTIALLY_PAID"] }, balance: { gte: amount } },
+      data: { balance: { decrement: amount } }
+    });
+    if (changed.count !== 1) throw new Error("El saldo cambió mientras registrabas el cobro o ya no admite pagos. Actualiza la pantalla e intenta de nuevo.");
+
+    const payment = await tx.payment.create({ data: { folio: createFolio("COB"), direction: "INCOME", method, amount, reference } });
+    await tx.paymentApplication.create({ data: { paymentId: payment.id, receivableId, amount } });
+
+    const current = await tx.accountReceivable.findUniqueOrThrow({ where: { id: receivableId } });
+    const finalStatus = Number(current.balance) <= 0.0001 ? "PAID" : "PARTIALLY_PAID";
+    const after = await tx.accountReceivable.update({ where: { id: receivableId }, data: { status: finalStatus } });
+    return { payment, before, after };
   });
+
   await writeAuditLog({ actor, action: "RECEIVABLE_PAYMENT_REGISTERED", entityType: "AccountReceivable", entityId: receivableId, before: { balance: result.before.balance, status: result.before.status }, after: { paymentId: result.payment.id, paymentFolio: result.payment.folio, amount, method, balance: result.after.balance, status: result.after.status } });
   revalidatePath("/finanzas");
 }
@@ -65,16 +74,25 @@ export async function registerPayablePayment(formData: FormData) {
   const supplierInvoiceId = z.string().min(1).parse(formData.get("supplierInvoiceId"));
   const amount = z.coerce.number().positive().parse(formData.get("amount"));
   const method = z.enum(["CASH","TRANSFER","CARD","CHECK","OTHER"]).parse(formData.get("method"));
+  const reference = String(formData.get("reference") || "") || null;
+
   const result = await prisma.$transaction(async tx => {
-    const ap = await tx.supplierInvoice.findUniqueOrThrow({ where: { id: supplierInvoiceId } });
-    if (!["OPEN", "PARTIALLY_PAID"].includes(ap.status)) throw new Error("La cuenta por pagar ya no admite pagos.");
-    if (amount > Number(ap.balance)) throw new Error("El pago excede el saldo pendiente.");
-    const payment = await tx.payment.create({ data: { folio: createFolio("PAG"), direction: "EXPENSE", method, amount, reference: String(formData.get("reference") || "") || null } });
-    const newBalance = Math.max(0, Number(ap.balance) - amount);
-    await tx.paymentApplication.create({ data: { paymentId: payment.id, supplierInvoiceId: ap.id, amount } });
-    const updated = await tx.supplierInvoice.update({ where: { id: ap.id }, data: { balance: newBalance, status: newBalance <= 0.0001 ? "PAID" : "PARTIALLY_PAID" } });
-    return { payment, before: ap, after: updated };
+    const before = await tx.supplierInvoice.findUniqueOrThrow({ where: { id: supplierInvoiceId } });
+    const changed = await tx.supplierInvoice.updateMany({
+      where: { id: supplierInvoiceId, status: { in: ["OPEN", "PARTIALLY_PAID"] }, balance: { gte: amount } },
+      data: { balance: { decrement: amount } }
+    });
+    if (changed.count !== 1) throw new Error("El saldo cambió mientras registrabas el pago o ya no admite pagos. Actualiza la pantalla e intenta de nuevo.");
+
+    const payment = await tx.payment.create({ data: { folio: createFolio("PAG"), direction: "EXPENSE", method, amount, reference } });
+    await tx.paymentApplication.create({ data: { paymentId: payment.id, supplierInvoiceId, amount } });
+
+    const current = await tx.supplierInvoice.findUniqueOrThrow({ where: { id: supplierInvoiceId } });
+    const finalStatus = Number(current.balance) <= 0.0001 ? "PAID" : "PARTIALLY_PAID";
+    const after = await tx.supplierInvoice.update({ where: { id: supplierInvoiceId }, data: { status: finalStatus } });
+    return { payment, before, after };
   });
+
   await writeAuditLog({ actor, action: "PAYABLE_PAYMENT_REGISTERED", entityType: "SupplierInvoice", entityId: supplierInvoiceId, before: { balance: result.before.balance, status: result.before.status }, after: { paymentId: result.payment.id, paymentFolio: result.payment.folio, amount, method, balance: result.after.balance, status: result.after.status } });
   revalidatePath("/finanzas");
   revalidatePath("/compras");
