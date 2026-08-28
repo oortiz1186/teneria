@@ -12,30 +12,38 @@ Incluye PostgreSQL propio con Docker, usuarios/roles, proveedores/clientes, alma
 ### Fase 2 — Producción
 Estado: completada en su alcance inicial.
 
+Incluye órdenes de producción, rutas configurables, asignación de lotes, máquinas/bombos, inicio/cierre de procesos, peso y pieles de entrada/salida, pH, temperatura, merma, división/mezcla, genealogía, QR, trazabilidad y cierre automático hacia producto terminado.
+
+### Fase 3 — Inventarios, químicos y recetas
+Estado: completada en su alcance inicial.
+
 Implementado:
 
-- catálogo de bombos y máquinas;
-- estados y capacidad por máquina;
-- órdenes de producción;
-- asignación de lotes a órdenes;
-- rutas configurables de producción;
-- ruta estándar de ciclo completo precargada;
-- generación automática de pasos al asignar un lote;
-- validación del siguiente proceso permitido;
-- inicio y cierre de procesos;
-- peso/pieles de entrada y salida;
-- pH, temperatura y observaciones;
-- control de ocupación/liberación de máquinas;
-- historial de procesos y merma;
-- división de lotes;
-- mezcla de lotes;
-- genealogía muchos-a-muchos de lotes;
-- QR único por lote;
-- ficha de trazabilidad integral;
-- movimientos PROCESS_IN / PROCESS_OUT / SPLIT / MERGE;
-- cierre automático de lote al terminar la ruta;
-- envío automático a almacén de producto terminado;
-- cierre automático de la orden cuando terminan todos sus lotes.
+- catálogo de productos químicos;
+- categorías y unidades de medida;
+- existencia mínima por producto;
+- almacén específico de químicos;
+- lotes físicos por producto químico;
+- proveedor y número de lote;
+- fecha de recepción y caducidad;
+- cantidad inicial y existencia actual;
+- costo unitario por lote químico;
+- movimientos de entrada y consumo;
+- alertas visuales de mínimo de existencia;
+- alerta de lotes próximos a caducar;
+- recetas vinculadas a procesos;
+- versionado base de recetas;
+- componentes secuenciados de receta;
+- dos bases de cálculo: porcentaje sobre peso y cantidad fija;
+- tolerancia por componente;
+- registro de consumo real por proceso activo;
+- selección del lote físico de químico consumido;
+- descuento automático de inventario;
+- validación de existencia disponible;
+- cálculo de cantidad teórica según receta y peso de entrada;
+- comparación teórico vs real;
+- costo real del químico consumido por proceso y lote;
+- historial de consumos químicos.
 
 ## Requisitos
 
@@ -49,7 +57,7 @@ Implementado:
 git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase2_rutas_genealogia_qr
+npm run db:migrate -- --name fase3_inventario_quimicos_recetas
 npm run db:seed
 npm run dev
 ```
@@ -66,29 +74,21 @@ NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
 
 ## Flujo actual
 
-Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Control de salida → Siguiente proceso → Calidad → Producto terminado.
+Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Receta → Consumo químico → Control de salida → Siguiente proceso → Calidad → Producto terminado.
 
-El `TanneryLot` sigue siendo el centro de la trazabilidad. `LotRelation` conserva la genealogía cuando los lotes se dividen, mezclan o posteriormente se reprocesen.
+Cada consumo químico queda asociado al `LotProcess`, por lo que se conserva la relación entre lote de producción, proceso, lote químico, cantidad real y costo.
 
 ## Roadmap
 
-### Fase 3 — Inventario y químicos
-- catálogo de químicos y materiales
-- unidades de medida
-- lotes y caducidad
-- entradas/salidas y existencias
-- recetas/versiones
-- consumo real vs teórico
-- mínimos y alertas
-- consumo por lote/proceso
-
 ### Fase 4 — Calidad
-- inspecciones
-- defectos
-- clasificación
-- rechazo
+- inspecciones y puntos de control
+- catálogo de defectos
+- clasificación/grado
+- pruebas y mediciones
+- rechazo parcial/total
 - reproceso
 - evidencia/fotos
+- liberación a producto terminado
 
 ### Fase 5 — Comercial
 - clientes
@@ -108,7 +108,7 @@ El `TanneryLot` sigue siendo el centro de la trazabilidad. `LotRelation` conserv
 - gastos
 
 ### Fase 7 — Costos y contabilidad
-- costo por lote
+- costo integral por lote
 - piel
 - químicos
 - mano de obra
