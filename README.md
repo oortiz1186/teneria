@@ -24,7 +24,7 @@ Implementado:
 - administración de usuarios/roles desde `/configuracion`;
 - activación, desactivación, cambio de roles y restablecimiento de contraseña;
 - auditoría persistente `AuditLog` con usuario, correo, acción, entidad, antes/después, IP, navegador y fecha;
-- auditoría en usuarios, ventas, compras, finanzas, producción, calidad y genealogía de lotes;
+- auditoría en usuarios, ventas, compras, finanzas, producción, calidad, consumos químicos y genealogía de lotes;
 - `/auditoria` con auditoría real por usuario y cronología operacional;
 - folios resistentes a colisión en los flujos endurecidos;
 - compuerta de calidad: QUALITY deja el lote en espera hasta liberación explícita;
@@ -35,6 +35,14 @@ Implementado:
 - fusión bloqueada durante procesos activos y exige misma orden, etapa, artículo, color y ruta pendiente;
 - pasos pendientes del lote absorbido se cancelan tras una fusión válida;
 - cierre de orden trata `COMPLETED`, `REJECTED`, `CANCELLED` y `CONSUMED` como estados terminales;
+- consumo químico con decremento atómico y bloqueo de existencias negativas ante solicitudes concurrentes;
+- recetas activas filtradas por vigencia al registrar consumos;
+- control de unidad para porcentajes sobre peso en recetas;
+- cobros CxC y pagos CxP con decremento atómico de saldo y rechazo de pagos concurrentes inválidos;
+- inicio de procesos con bloqueo de fila del lote y toma atómica de máquina;
+- cierre de procesos con bloqueo de ejecución para evitar doble cierre;
+- recepción de órdenes de compra serializada por partida para evitar sobre-recepciones concurrentes;
+- lotes químicos recibidos mediante `upsert` para impedir duplicados del mismo lote/proveedor/almacén;
 - seed seguro: no elimina pasos de rutas existentes y no vuelve a sobrescribir una contraseña de administrador ya inicializada;
 - CI de GitHub Actions con Prisma Validate, Prisma Generate y TypeScript;
 - esquema Prisma corregido a sintaxis válida de enums y verificado por CI.
@@ -62,7 +70,7 @@ AUTH_BOOTSTRAP_NAME="Administrador"
 
 ## Actualizar una instalación existente
 
-Esta etapa modifica el esquema de Prisma por usuarios/auditoría y por el estado `CONSUMED`:
+Los cambios de usuarios/auditoría y el estado `CONSUMED` sí requieren migración. Los últimos cambios de concurrencia son sólo lógica transaccional y no agregan tablas nuevas.
 
 ```bash
 git pull
@@ -70,6 +78,15 @@ npm install
 npm run db:generate
 npm run db:migrate -- --name hardening_users_audit_lots
 npm run db:seed
+npm run dev
+```
+
+Si ya aplicaste `hardening_users_audit_lots`, para los cambios de concurrencia basta con:
+
+```bash
+git pull
+npm install
+npm run db:generate
 npm run dev
 ```
 
@@ -105,12 +122,12 @@ Requisición → Orden de compra → Recepción → Inventario → Factura prove
 ## Próximos pasos de endurecimiento
 
 1. proteger y auditar las server actions restantes de inventario, recetas, costos, recepciones y operación;
-2. concurrencia transaccional estricta en inventario químico, pagos y procesos;
+2. pruebas de integración concurrente contra PostgreSQL real;
 3. cambio de contraseña por el propio usuario y recuperación controlada;
 4. auditoría atómica dentro de las mismas transacciones críticas;
 5. órdenes de mantenimiento preventivo/correctivo y refacciones;
 6. almacenamiento real de fotografías/PDF/XML;
 7. PWA/offline para piso;
-8. pruebas de integración con PostgreSQL real y escenarios concurrentes;
-9. worker Windows para CONTPAQi;
-10. backups, monitoreo y despliegue productivo.
+8. worker Windows para CONTPAQi;
+9. backups, monitoreo y alertas;
+10. despliegue productivo reproducible.
