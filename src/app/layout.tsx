@@ -8,6 +8,7 @@ export const metadata = {
 
 const nav = [
   ["/", "Dashboard"],
+  ["/operacion", "Piso / Operación"],
   ["/recepciones", "Recepción de piel"],
   ["/lotes", "Lotes"],
   ["/produccion", "Producción"],
@@ -20,7 +21,7 @@ const nav = [
   ["/ventas", "Ventas"],
   ["/compras", "Compras"],
   ["/finanzas", "Administración"],
-  ["/costos", "Costos y contabilidad"],
+  ["/costos", "Costos"],
   ["/configuracion", "Configuración"]
 ];
 
