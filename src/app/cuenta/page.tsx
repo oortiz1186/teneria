@@ -9,7 +9,7 @@ const messages: Record<string, string> = {
   current: "La contraseña actual no es correcta."
 };
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function AccountPage({ searchParams }: { searchParams: Promise<{ error?: string; required?: string }> }) {
   const user = await requireUser();
   const params = await searchParams;
   const error = params.error ? messages[params.error] : null;
@@ -22,6 +22,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           <div className="muted">Actualiza tus credenciales de acceso al ERP.</div>
         </div>
       </div>
+
+      {params.required || user.mustChangePassword ? (
+        <div className="alert" style={{ marginBottom: 16, background: "#fff8e6", color: "#7a5400", border: "1px solid #f1d794" }}>
+          Estás usando una contraseña temporal. Debes cambiarla antes de continuar al resto del sistema.
+        </div>
+      ) : null}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <strong>{user.name}</strong>
