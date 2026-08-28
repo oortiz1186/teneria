@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit";
+import { getAuditContext, writeAuditLogWithClient } from "@/lib/audit";
 
 const schema = z.object({
   lotProcessId: z.string().min(1),
@@ -14,13 +14,14 @@ const schema = z.object({
 
 export async function registerConsumption(formData: FormData) {
   const actor = await requireRole(["PRODUCTION", "WAREHOUSE"]);
+  const auditContext = await getAuditContext();
   const data = schema.parse({
     lotProcessId: formData.get("lotProcessId"),
     chemicalLotId: formData.get("chemicalLotId"),
     actualQuantity: formData.get("actualQuantity")
   });
 
-  const result = await prisma.$transaction(async tx => {
+  await prisma.$transaction(async tx => {
     const execution = await tx.lotProcess.findUniqueOrThrow({
       where: { id: data.lotProcessId },
       include: { process: true }
@@ -91,23 +92,23 @@ export async function registerConsumption(formData: FormData) {
     });
 
     const updatedLot = await tx.chemicalLot.findUniqueOrThrow({ where: { id: chemicalLot.id } });
-    return { consumption, execution, chemicalLot, updatedLot, recipeId: recipe?.id ?? null };
-  });
 
-  await writeAuditLog({
-    actor,
-    action: "CHEMICAL_CONSUMPTION_REGISTERED",
-    entityType: "ChemicalLot",
-    entityId: data.chemicalLotId,
-    before: { currentQuantity: result.chemicalLot.currentQuantity },
-    after: {
-      currentQuantity: result.updatedLot.currentQuantity,
-      actualQuantity: data.actualQuantity,
-      consumptionId: result.consumption.id,
-      lotProcessId: result.execution.id,
-      processCode: result.execution.process.code,
-      recipeId: result.recipeId
-    }
+    await writeAuditLogWithClient(tx, {
+      actor,
+      context: auditContext,
+      action: "CHEMICAL_CONSUMPTION_REGISTERED",
+      entityType: "ChemicalLot",
+      entityId: data.chemicalLotId,
+      before: { currentQuantity: chemicalLot.currentQuantity },
+      after: {
+        currentQuantity: updatedLot.currentQuantity,
+        actualQuantity: data.actualQuantity,
+        consumptionId: consumption.id,
+        lotProcessId: execution.id,
+        processCode: execution.process.code,
+        recipeId: recipe?.id ?? null
+      }
+    });
   });
 
   revalidatePath("/inventario");
