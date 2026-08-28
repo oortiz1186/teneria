@@ -1,54 +1,41 @@
 # Tenería ERP
 
-ERP especializado para operación de tenerías.
+ERP especializado para operación integral de tenerías.
 
 ## Estado actual
 
 ### Fase 1 — Base + recepción/lotes
 Estado: completada.
 
-- PostgreSQL propio con Docker
-- usuarios y roles
-- proveedores y clientes
-- almacenes
-- recepción de piel
-- creación automática de lote
-- jerarquía de lotes
-- catálogo de procesos
-- movimientos de lote
-- dashboard inicial
+Incluye PostgreSQL propio con Docker, usuarios/roles, proveedores/clientes, almacenes, recepción de piel, creación automática de lote, catálogo de procesos, movimientos y dashboard inicial.
 
 ### Fase 2 — Producción
-Estado: en desarrollo, núcleo operativo implementado.
+Estado: completada en su alcance inicial.
 
 Implementado:
 
-- catálogo de bombos/máquinas
-- estado de máquina: disponible, en uso, mantenimiento e inactiva
-- capacidad por máquina
-- inicio de proceso por lote
-- bloqueo para impedir dos procesos simultáneos sobre el mismo lote
-- bloqueo para impedir usar una máquina ocupada
-- captura automática de pieles y peso de entrada
-- captura de pieles y peso de salida
-- pH y temperatura
-- observaciones
-- liberación automática de máquina al finalizar
-- actualización del peso y cantidad actual del lote
-- movimientos PROCESS_IN / PROCESS_OUT
-- historial de procesos
-- cálculo visual de merma en kg y porcentaje
-- modelo base de órdenes de producción
-- relación orden de producción → lotes
-
-Pendiente para cerrar Fase 2:
-
-- pantalla CRUD de órdenes de producción
-- asignación de lote a orden
-- rutas de proceso predefinidas por artículo
-- división y mezcla de lotes desde interfaz
-- QR de lote
-- estados finales y envío a almacén terminado
+- catálogo de bombos y máquinas;
+- estados y capacidad por máquina;
+- órdenes de producción;
+- asignación de lotes a órdenes;
+- rutas configurables de producción;
+- ruta estándar de ciclo completo precargada;
+- generación automática de pasos al asignar un lote;
+- validación del siguiente proceso permitido;
+- inicio y cierre de procesos;
+- peso/pieles de entrada y salida;
+- pH, temperatura y observaciones;
+- control de ocupación/liberación de máquinas;
+- historial de procesos y merma;
+- división de lotes;
+- mezcla de lotes;
+- genealogía muchos-a-muchos de lotes;
+- QR único por lote;
+- ficha de trazabilidad integral;
+- movimientos PROCESS_IN / PROCESS_OUT / SPLIT / MERGE;
+- cierre automático de lote al terminar la ruta;
+- envío automático a almacén de producto terminado;
+- cierre automático de la orden cuando terminan todos sus lotes.
 
 ## Requisitos
 
@@ -56,14 +43,13 @@ Pendiente para cerrar Fase 2:
 - Docker / Docker Compose
 - npm
 
-## Arranque local
+## Actualizar una instalación existente
 
 ```bash
-cp .env.example .env
-docker compose up -d
+git pull
 npm install
 npm run db:generate
-npm run db:migrate -- --name fase2_produccion
+npm run db:migrate -- --name fase2_rutas_genealogia_qr
 npm run db:seed
 npm run dev
 ```
@@ -72,22 +58,29 @@ Abrir:
 
 http://localhost:3000
 
-## Arquitectura
+Configurar en `.env` la URL pública usada por los QR cuando el sistema se despliegue:
 
-El `TanneryLot` es el centro de la trazabilidad. Cada ejecución queda registrada en `LotProcess` y cada entrada/salida relevante genera un `LotMovement`.
+```env
+NEXT_PUBLIC_APP_URL="https://tu-dominio.com"
+```
 
-Las órdenes comerciales y administrativas se conectarán al lote sin reemplazar esta trazabilidad.
+## Flujo actual
+
+Recepción → Lote → Orden de producción → Ruta → Proceso/Máquina → Control de salida → Siguiente proceso → Calidad → Producto terminado.
+
+El `TanneryLot` sigue siendo el centro de la trazabilidad. `LotRelation` conserva la genealogía cuando los lotes se dividen, mezclan o posteriormente se reprocesen.
 
 ## Roadmap
 
 ### Fase 3 — Inventario y químicos
-- productos químicos
-- unidades
-- lotes/caducidad
-- entradas/salidas
-- recetas
+- catálogo de químicos y materiales
+- unidades de medida
+- lotes y caducidad
+- entradas/salidas y existencias
+- recetas/versiones
 - consumo real vs teórico
-- mínimos de inventario
+- mínimos y alertas
+- consumo por lote/proceso
 
 ### Fase 4 — Calidad
 - inspecciones
@@ -126,8 +119,7 @@ Las órdenes comerciales y administrativas se conectarán al lote sin reemplazar
 
 ### Fase 8 — Indicadores y piso
 - dashboards
-- QR
-- tablet/celular
+- interfaz optimizada para tablet/celular
 - alertas
 - auditoría
 - mantenimiento
