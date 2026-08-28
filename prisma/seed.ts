@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  const roles = [["ADMIN","Administrador"],["PRODUCTION","Producción"],["WAREHOUSE","Almacén"],["QUALITY","Calidad"],["SALES","Ventas"],["PURCHASING","Compras"],["FINANCE","Administración / Finanzas"]];
+  const roles = [["ADMIN","Administrador"],["PRODUCTION","Producción"],["WAREHOUSE","Almacén"],["QUALITY","Calidad"],["SALES","Ventas"],["PURCHASING","Compras"],["FINANCE","Administración / Finanzas"],["MAINTENANCE","Mantenimiento"]];
   for (const [code,name] of roles) await prisma.role.upsert({ where:{code}, update:{name}, create:{code,name} });
 
   const bootstrapEmail = process.env.AUTH_BOOTSTRAP_EMAIL?.trim().toLowerCase();
