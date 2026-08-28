@@ -1,7 +1,14 @@
 import { headers } from "next/headers";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type AuditActor = { id: string; email: string };
+type AuditClient = Prisma.TransactionClient | PrismaClient;
+
+export type AuditContext = {
+  ipAddress: string | null;
+  userAgent: string | null;
+};
 
 function jsonSafe(value: unknown) {
   if (value === undefined) return undefined;
@@ -12,20 +19,25 @@ function jsonSafe(value: unknown) {
   }));
 }
 
-export async function writeAuditLog(input: {
+export async function getAuditContext(): Promise<AuditContext> {
+  const h = await headers();
+  const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return {
+    ipAddress: forwarded || h.get("x-real-ip") || null,
+    userAgent: h.get("user-agent")
+  };
+}
+
+export async function writeAuditLogWithClient(client: AuditClient, input: {
   actor?: AuditActor | null;
   action: string;
   entityType: string;
   entityId?: string | null;
   before?: unknown;
   after?: unknown;
+  context: AuditContext;
 }) {
-  const h = await headers();
-  const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const ipAddress = forwarded || h.get("x-real-ip") || null;
-  const userAgent = h.get("user-agent");
-
-  await prisma.auditLog.create({
+  await client.auditLog.create({
     data: {
       userId: input.actor?.id ?? null,
       userEmail: input.actor?.email ?? null,
@@ -34,8 +46,20 @@ export async function writeAuditLog(input: {
       entityId: input.entityId ?? null,
       beforeJson: jsonSafe(input.before),
       afterJson: jsonSafe(input.after),
-      ipAddress,
-      userAgent
+      ipAddress: input.context.ipAddress,
+      userAgent: input.context.userAgent
     }
   });
+}
+
+export async function writeAuditLog(input: {
+  actor?: AuditActor | null;
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  before?: unknown;
+  after?: unknown;
+}) {
+  const context = await getAuditContext();
+  await writeAuditLogWithClient(prisma, { ...input, context });
 }
