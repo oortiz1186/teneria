@@ -22,6 +22,7 @@ const nav = [
   ["/compras", "Compras"],
   ["/finanzas", "Administración"],
   ["/costos", "Costos"],
+  ["/auditoria", "Auditoría"],
   ["/configuracion", "Configuración"]
 ];
 
