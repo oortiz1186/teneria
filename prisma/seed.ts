@@ -12,21 +12,29 @@ async function main() {
   if (bootstrapEmail && bootstrapPassword) {
     if (bootstrapPassword.length < 12) throw new Error("AUTH_BOOTSTRAP_PASSWORD debe tener al menos 12 caracteres.");
     const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: "ADMIN" } });
-    const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
-    const admin = await prisma.user.upsert({
-      where: { email: bootstrapEmail },
-      update: {
-        name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador",
-        status: "ACTIVE",
-        passwordHash
-      },
-      create: {
-        email: bootstrapEmail,
-        name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador",
-        status: "ACTIVE",
-        passwordHash
-      }
-    });
+    const existingAdmin = await prisma.user.findUnique({ where: { email: bootstrapEmail } });
+    let admin;
+
+    if (existingAdmin) {
+      admin = await prisma.user.update({
+        where: { id: existingAdmin.id },
+        data: {
+          name: process.env.AUTH_BOOTSTRAP_NAME || existingAdmin.name,
+          status: "ACTIVE",
+          ...(existingAdmin.passwordHash ? {} : { passwordHash: await bcrypt.hash(bootstrapPassword, 12) })
+        }
+      });
+    } else {
+      admin = await prisma.user.create({
+        data: {
+          email: bootstrapEmail,
+          name: process.env.AUTH_BOOTSTRAP_NAME || "Administrador",
+          status: "ACTIVE",
+          passwordHash: await bcrypt.hash(bootstrapPassword, 12)
+        }
+      });
+    }
+
     await prisma.userRole.upsert({
       where: { userId_roleId: { userId: admin.id, roleId: adminRole.id } },
       update: {},
