@@ -217,6 +217,27 @@ enum AccountingEntityType {
   PURCHASE_ORDER
 }
 
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  INSPECTION
+}
+
+enum MaintenanceStatus {
+  OPEN
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model User {
   id String @id @default(cuid())
   name String
@@ -307,6 +328,8 @@ model Machine {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   executions LotProcess[]
+  maintenancePlans MaintenancePlan[]
+  maintenanceOrders MaintenanceWorkOrder[]
 }
 
 model RawHideReceipt {
@@ -1068,6 +1091,85 @@ model AccountingSyncQueue {
   updatedAt DateTime @updatedAt
   @@index([status,queuedAt])
   @@index([entityType,entityId])
+}
+
+model MaintenancePlan {
+  id String @id @default(cuid())
+  machineId String
+  name String
+  description String?
+  frequencyDays Int?
+  frequencyHours Int?
+  lastPerformedAt DateTime?
+  nextDueAt DateTime?
+  active Boolean @default(true)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  machine Machine @relation(fields:[machineId],references:[id],onDelete:Cascade)
+  workOrders MaintenanceWorkOrder[]
+  @@index([machineId,active])
+  @@index([nextDueAt])
+}
+
+model MaintenanceWorkOrder {
+  id String @id @default(cuid())
+  folio String @unique
+  machineId String
+  planId String?
+  type MaintenanceType
+  status MaintenanceStatus @default(OPEN)
+  priority MaintenancePriority @default(MEDIUM)
+  description String
+  technicianName String?
+  scheduledAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  downtimeMinutes Int?
+  laborCost Decimal @default(0) @db.Decimal(14,2)
+  partsCost Decimal @default(0) @db.Decimal(14,2)
+  totalCost Decimal @default(0) @db.Decimal(14,2)
+  resolution String?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  machine Machine @relation(fields:[machineId],references:[id])
+  plan MaintenancePlan? @relation(fields:[planId],references:[id],onDelete:SetNull)
+  parts MaintenancePartUsage[]
+  @@index([machineId,status])
+  @@index([status,scheduledAt])
+  @@index([planId])
+}
+
+model MaintenancePart {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  unit String @default("pz")
+  minStock Decimal? @db.Decimal(14,3)
+  currentStock Decimal @default(0) @db.Decimal(14,3)
+  unitCost Decimal @default(0) @db.Decimal(14,4)
+  active Boolean @default(true)
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  usages MaintenancePartUsage[]
+  @@index([active])
+}
+
+model MaintenancePartUsage {
+  id String @id @default(cuid())
+  workOrderId String
+  partId String
+  quantity Decimal @db.Decimal(14,3)
+  unitCost Decimal @db.Decimal(14,4)
+  totalCost Decimal @db.Decimal(14,2)
+  createdAt DateTime @default(now())
+  workOrder MaintenanceWorkOrder @relation(fields:[workOrderId],references:[id],onDelete:Cascade)
+  part MaintenancePart @relation(fields:[partId],references:[id])
+  @@index([workOrderId])
+  @@index([partId])
 }
 
 model AuditLog {
