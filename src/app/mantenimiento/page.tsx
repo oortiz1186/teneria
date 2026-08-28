@@ -28,7 +28,9 @@ const priorityLabel: Record<string, string> = {
 };
 
 export default async function MaintenancePage() {
-  await requireRole(["MAINTENANCE", "PRODUCTION", "WAREHOUSE"]);
+  const user = await requireRole(["MAINTENANCE", "PRODUCTION", "WAREHOUSE"]);
+  const canMaintain = user.roles.includes("ADMIN") || user.roles.includes("MAINTENANCE") || user.roles.includes("PRODUCTION");
+  const canParts = canMaintain || user.roles.includes("WAREHOUSE");
   const now = new Date();
   const [machines, plans, orders, parts] = await Promise.all([
     prisma.machine.findMany({ where: { active: true }, orderBy: { code: "asc" } }),
@@ -58,34 +60,36 @@ export default async function MaintenancePage() {
         <div className="card"><div className="muted">Paro acumulado</div><div className="kpi">{Math.round(downtime / 60)} h</div></div>
       </div>
 
-      <div className="grid-2" style={{ marginBottom: 20 }}>
-        <div className="card">
-          <h2>Nuevo plan preventivo</h2>
-          <form action={createMaintenancePlan} className="form">
-            <div className="field full"><label>Máquina</label><select name="machineId" required><option value="">Selecciona</option>{machines.map(m => <option key={m.id} value={m.id}>{m.code} · {m.name}</option>)}</select></div>
-            <div className="field full"><label>Plan</label><input name="name" required placeholder="Lubricación general" /></div>
-            <div className="field"><label>Cada días</label><input name="frequencyDays" type="number" min="1" /></div>
-            <div className="field"><label>Cada horas</label><input name="frequencyHours" type="number" min="1" /></div>
-            <div className="field"><label>Próxima fecha</label><input name="nextDueAt" type="date" /></div>
-            <div className="field full"><label>Descripción</label><textarea name="description" rows={2} /></div>
-            <div className="full"><button className="button" type="submit">Crear plan</button></div>
-          </form>
-        </div>
+      {canMaintain ? (
+        <div className="grid-2" style={{ marginBottom: 20 }}>
+          <div className="card">
+            <h2>Nuevo plan preventivo</h2>
+            <form action={createMaintenancePlan} className="form">
+              <div className="field full"><label>Máquina</label><select name="machineId" required><option value="">Selecciona</option>{machines.map(m => <option key={m.id} value={m.id}>{m.code} · {m.name}</option>)}</select></div>
+              <div className="field full"><label>Plan</label><input name="name" required placeholder="Lubricación general" /></div>
+              <div className="field"><label>Cada días</label><input name="frequencyDays" type="number" min="1" /></div>
+              <div className="field"><label>Cada horas</label><input name="frequencyHours" type="number" min="1" /></div>
+              <div className="field"><label>Próxima fecha</label><input name="nextDueAt" type="date" /></div>
+              <div className="field full"><label>Descripción</label><textarea name="description" rows={2} /></div>
+              <div className="full"><button className="button" type="submit">Crear plan</button></div>
+            </form>
+          </div>
 
-        <div className="card">
-          <h2>Nueva orden de mantenimiento</h2>
-          <form action={createMaintenanceOrder} className="form">
-            <div className="field full"><label>Máquina</label><select name="machineId" required><option value="">Selecciona</option>{machines.map(m => <option key={m.id} value={m.id}>{m.code} · {m.name} · {m.status}</option>)}</select></div>
-            <div className="field"><label>Tipo</label><select name="type" defaultValue="PREVENTIVE"><option value="PREVENTIVE">Preventivo</option><option value="CORRECTIVE">Correctivo</option><option value="INSPECTION">Inspección</option></select></div>
-            <div className="field"><label>Prioridad</label><select name="priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option><option value="CRITICAL">Crítica</option></select></div>
-            <div className="field full"><label>Plan relacionado</label><select name="planId"><option value="">Sin plan</option>{plans.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.machine.code} · {p.name}</option>)}</select></div>
-            <div className="field full"><label>Trabajo requerido</label><textarea name="description" rows={2} required /></div>
-            <div className="field"><label>Técnico</label><input name="technicianName" /></div>
-            <div className="field"><label>Programar</label><input name="scheduledAt" type="datetime-local" /></div>
-            <div className="full"><button className="button" type="submit">Crear orden</button></div>
-          </form>
+          <div className="card">
+            <h2>Nueva orden de mantenimiento</h2>
+            <form action={createMaintenanceOrder} className="form">
+              <div className="field full"><label>Máquina</label><select name="machineId" required><option value="">Selecciona</option>{machines.map(m => <option key={m.id} value={m.id}>{m.code} · {m.name} · {m.status}</option>)}</select></div>
+              <div className="field"><label>Tipo</label><select name="type" defaultValue="PREVENTIVE"><option value="PREVENTIVE">Preventivo</option><option value="CORRECTIVE">Correctivo</option><option value="INSPECTION">Inspección</option></select></div>
+              <div className="field"><label>Prioridad</label><select name="priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option><option value="CRITICAL">Crítica</option></select></div>
+              <div className="field full"><label>Plan relacionado</label><select name="planId"><option value="">Sin plan</option>{plans.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.machine.code} · {p.name}</option>)}</select></div>
+              <div className="field full"><label>Trabajo requerido</label><textarea name="description" rows={2} required /></div>
+              <div className="field"><label>Técnico</label><input name="technicianName" /></div>
+              <div className="field"><label>Programar</label><input name="scheduledAt" type="datetime-local" /></div>
+              <div className="full"><button className="button" type="submit">Crear orden</button></div>
+            </form>
+          </div>
         </div>
-      </div>
+      ) : <div className="card" style={{ marginBottom: 20 }}><strong>Vista de almacén</strong><div className="muted">Tu rol permite administrar existencias de refacciones. La creación, inicio y cierre de órdenes corresponde a Mantenimiento/Producción.</div></div>}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h2>Órdenes activas</h2>
@@ -97,7 +101,7 @@ export default async function MaintenancePage() {
                 <tr key={order.id}>
                   <td>{order.folio}</td><td>{order.machine.code}</td><td>{order.type}</td><td>{priorityLabel[order.priority]}</td><td>{statusLabel[order.status]}</td><td>{order.description}</td>
                   <td>
-                    {order.status !== "IN_PROGRESS" ? (
+                    {!canMaintain ? <span className="muted">Sólo consulta</span> : order.status !== "IN_PROGRESS" ? (
                       <form action={startMaintenanceOrder}><input type="hidden" name="orderId" value={order.id} /><button className="button" type="submit">Iniciar</button></form>
                     ) : (
                       <details>
@@ -120,7 +124,7 @@ export default async function MaintenancePage() {
         </div>
       </div>
 
-      <div className="grid-2" style={{ marginBottom: 20 }}>
+      {canParts ? <div className="grid-2" style={{ marginBottom: 20 }}>
         <div className="card">
           <h2>Alta de refacción</h2>
           <form action={createMaintenancePart} className="form">
@@ -142,9 +146,9 @@ export default async function MaintenancePage() {
             <div className="full"><button className="button" type="submit">Registrar entrada</button></div>
           </form>
         </div>
-      </div>
+      </div> : null}
 
-      <div className="card" style={{ marginBottom: 20 }}>
+      {canMaintain ? <div className="card" style={{ marginBottom: 20 }}>
         <h2>Consumir refacción en orden activa</h2>
         <form action={consumeMaintenancePart} className="form">
           <div className="field"><label>Orden</label><select name="workOrderId" required><option value="">Selecciona</option>{openOrders.filter(o => o.status === "IN_PROGRESS").map(o => <option key={o.id} value={o.id}>{o.folio} · {o.machine.code}</option>)}</select></div>
@@ -152,7 +156,7 @@ export default async function MaintenancePage() {
           <div className="field"><label>Cantidad</label><input name="quantity" type="number" min="0.001" step="0.001" required /></div>
           <div className="full"><button className="button" type="submit">Consumir</button></div>
         </form>
-      </div>
+      </div> : null}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h2>Planes preventivos</h2>
