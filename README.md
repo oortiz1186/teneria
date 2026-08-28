@@ -40,13 +40,16 @@ Implementado:
 - seed seguro: no elimina pasos de rutas ni reemplaza contraseñas existentes;
 - módulo de mantenimiento preventivo/correctivo/inspección en `/mantenimiento`;
 - planes preventivos por máquina, frecuencia por días/horas y próxima fecha;
+- para planes por horas, la programación por contador real de uso queda pendiente hasta incorporar horómetro/telemetría; por ahora puede registrarse la frecuencia y controlar la fecha manualmente;
 - órdenes de mantenimiento con prioridad, programación, técnico, inicio, cierre, resolución y tiempo de paro;
 - una máquina en producción no puede entrar a mantenimiento;
+- la toma de máquina por una orden de mantenimiento es atómica: sólo una orden puede iniciar sobre el equipo disponible;
 - iniciar una orden coloca la máquina en `MAINTENANCE` y cerrarla la regresa a `AVAILABLE`;
 - inventario de refacciones con stock, mínimo, costo unitario, entradas y consumos;
 - consumo de refacciones atómico para impedir existencias negativas;
 - costos de mano de obra/refacciones y costo total por orden de mantenimiento;
 - el cambio manual de estado de máquina desde Operación fue eliminado: mantenimiento debe pasar por una orden;
+- la pantalla de mantenimiento limita acciones según rol: WAREHOUSE administra refacciones y consulta órdenes; MAINTENANCE/PRODUCTION gestionan planes y órdenes;
 - esquema Prisma normalizado y validado;
 - CI con PostgreSQL 16 real, Prisma Validate, Prisma Generate, TypeScript, `prisma db push`, seed y pruebas de integración concurrente.
 
@@ -63,13 +66,15 @@ npm run db:seed
 npm run test:integration
 ```
 
-`npm run test:integration` valida actualmente tres escenarios concurrentes críticos:
+`npm run test:integration` valida actualmente cinco escenarios concurrentes críticos:
 
 1. dos consumos simultáneos sobre el mismo lote químico: sólo uno puede descontar si el saldo no alcanza para ambos;
 2. dos cobros simultáneos sobre una misma CxC: sólo uno puede aplicar si el saldo no alcanza para ambos;
-3. dos intentos simultáneos de tomar una misma máquina disponible: sólo uno puede ganar.
+3. dos intentos simultáneos de tomar una misma máquina para producción: sólo uno puede ganar;
+4. dos órdenes de mantenimiento intentando tomar simultáneamente la misma máquina: sólo una puede iniciar;
+5. dos consumos simultáneos de la misma refacción: sólo uno puede descontar si el stock no alcanza para ambos.
 
-La ejecución completa con PostgreSQL real pasa Prisma, TypeScript, creación del esquema, seed y pruebas concurrentes.
+La ejecución completa con PostgreSQL real valida Prisma, TypeScript, creación del esquema, seed y pruebas concurrentes.
 
 ## Requisitos
 
@@ -135,7 +140,7 @@ Abrir:
 
 - `ADMIN`: acceso total y configuración/auditoría.
 - `PRODUCTION`: producción, rutas, lotes y consumos relacionados.
-- `WAREHOUSE`: recepciones, almacenes e inventarios.
+- `WAREHOUSE`: recepciones, almacenes e inventarios/refacciones.
 - `QUALITY`: calidad, lotes y operación relacionada.
 - `SALES`: clientes, cotizaciones, pedidos y remisiones.
 - `PURCHASING`: requisiciones, órdenes de compra y recepción.
@@ -153,10 +158,9 @@ Mantenimiento: Plan preventivo / Falla → Orden de mantenimiento → Paro contr
 ## Próximos pasos de endurecimiento
 
 1. ampliar auditoría atómica al resto de escrituras críticas;
-2. pruebas de integración específicas para mantenimiento/refacciones;
-3. almacenamiento real de fotografías/PDF/XML;
-4. PWA/offline para piso;
-5. worker Windows para CONTPAQi;
-6. backups automáticos y restauración probada;
-7. monitoreo y alertas de infraestructura/aplicación;
-8. despliegue productivo reproducible.
+2. almacenamiento real de fotografías/PDF/XML;
+3. PWA/offline para piso;
+4. worker Windows para CONTPAQi;
+5. backups automáticos y restauración probada;
+6. monitoreo y alertas de infraestructura/aplicación;
+7. despliegue productivo reproducible.
