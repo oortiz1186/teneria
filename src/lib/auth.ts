@@ -16,13 +16,15 @@ export async function requireUser() {
     where: { id: session.userId },
     include: { roles: { include: { role: true } } }
   });
-  if (!user || user.status !== "ACTIVE") redirect("/login");
+  if (!user || user.status !== "ACTIVE" || user.sessionVersion !== session.sessionVersion) redirect("/login");
 
   return {
     id: user.id,
     name: user.name,
     email: user.email,
-    roles: user.roles.map(r => r.role.code)
+    roles: user.roles.map(r => r.role.code),
+    mustChangePassword: user.mustChangePassword,
+    sessionVersion: user.sessionVersion
   };
 }
 
