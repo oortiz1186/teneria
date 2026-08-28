@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: teneria-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: teneria
+      POSTGRES_USER: teneria
+      POSTGRES_PASSWORD: teneria_dev
+    ports:
+      - "5434:5432"
+    volumes:
+      - teneria_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teneria -d teneria"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  teneria_postgres_data:
