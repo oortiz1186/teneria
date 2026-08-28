@@ -11,6 +11,7 @@ const nav = [
   ["/recepciones", "Recepción de piel"],
   ["/lotes", "Lotes"],
   ["/produccion", "Producción"],
+  ["/produccion/ordenes", "Órdenes de producción"],
   ["/almacenes", "Almacenes"],
   ["/calidad", "Calidad"],
   ["/ventas", "Ventas"],
@@ -26,9 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <div className="shell">
           <aside className="sidebar">
             <div className="brand">Tenería ERP</div>
-            <nav className="nav">
-              {nav.map(([href, label]) => <Link key={href} href={href}>{label}</Link>)}
-            </nav>
+            <nav className="nav">{nav.map(([href, label]) => <Link key={href} href={href}>{label}</Link>)}</nav>
           </aside>
           <main className="main">{children}</main>
         </div>
