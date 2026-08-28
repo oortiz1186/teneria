@@ -13,6 +13,7 @@ enum ReceiptStatus { DRAFT CONFIRMED CANCELLED }
 enum ProcessExecutionStatus { PENDING IN_PROGRESS COMPLETED ON_HOLD CANCELLED }
 enum ProductionOrderStatus { DRAFT RELEASED IN_PROGRESS COMPLETED CANCELLED }
 enum MachineStatus { AVAILABLE IN_USE MAINTENANCE INACTIVE }
+enum LotRelationType { SPLIT MERGE REPROCESS TRANSFORM }
 enum MovementType { RECEIPT TRANSFER PROCESS_IN PROCESS_OUT SPLIT MERGE ADJUSTMENT REJECTION FINISHED_GOODS }
 
 model User {
@@ -125,10 +126,38 @@ model RawHideReceiptItem {
   @@index([receiptId])
 }
 
+model ProductionRoute {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  description String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  steps ProductionRouteStep[]
+  orders ProductionOrder[]
+}
+
+model ProductionRouteStep {
+  id String @id @default(cuid())
+  routeId String
+  processId String
+  sequence Int
+  estimatedMinutes Int?
+  preferredMachineType String?
+  required Boolean @default(true)
+  route ProductionRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  process ProcessCatalog @relation(fields: [processId], references: [id])
+  executions LotProcess[]
+  @@unique([routeId, sequence])
+  @@index([processId])
+}
+
 model ProductionOrder {
   id String @id @default(cuid())
   folio String @unique
   customerId String?
+  routeId String?
   articleCode String?
   targetColor String?
   requestedHides Int?
@@ -139,8 +168,11 @@ model ProductionOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   customer Customer? @relation(fields: [customerId], references: [id])
+  route ProductionRoute? @relation(fields: [routeId], references: [id])
   lots TanneryLot[]
+  executions LotProcess[]
   @@index([status, dueDate])
+  @@index([routeId])
 }
 
 model TanneryLot {
@@ -158,6 +190,7 @@ model TanneryLot {
   initialWeightKg Decimal @db.Decimal(12, 3)
   currentWeightKg Decimal @db.Decimal(12, 3)
   color String?
+  qrToken String @unique @default(cuid())
   notes String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -165,12 +198,29 @@ model TanneryLot {
   productionOrder ProductionOrder? @relation(fields: [productionOrderId], references: [id])
   parentLot TanneryLot? @relation("LotHierarchy", fields: [parentLotId], references: [id])
   childLots TanneryLot[] @relation("LotHierarchy")
+  sourceRelations LotRelation[] @relation("LotRelationParent")
+  targetRelations LotRelation[] @relation("LotRelationChild")
   processes LotProcess[]
   movements LotMovement[]
   @@index([status])
   @@index([receiptId])
   @@index([productionOrderId])
   @@index([parentLotId])
+}
+
+model LotRelation {
+  id String @id @default(cuid())
+  parentLotId String
+  childLotId String
+  relationType LotRelationType
+  hidesQuantity Int?
+  weightKg Decimal? @db.Decimal(12,3)
+  notes String?
+  createdAt DateTime @default(now())
+  parentLot TanneryLot @relation("LotRelationParent", fields: [parentLotId], references: [id], onDelete: Cascade)
+  childLot TanneryLot @relation("LotRelationChild", fields: [childLotId], references: [id], onDelete: Cascade)
+  @@unique([parentLotId, childLotId, relationType])
+  @@index([childLotId])
 }
 
 model ProcessCatalog {
@@ -185,6 +235,7 @@ model ProcessCatalog {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   executions LotProcess[]
+  routeSteps ProductionRouteStep[]
   @@index([sequence])
 }
 
@@ -193,6 +244,8 @@ model LotProcess {
   lotId String
   processId String
   machineId String?
+  routeStepId String?
+  productionOrderId String?
   status ProcessExecutionStatus @default(PENDING)
   startedAt DateTime?
   completedAt DateTime?
@@ -208,9 +261,13 @@ model LotProcess {
   lot TanneryLot @relation(fields: [lotId], references: [id], onDelete: Cascade)
   process ProcessCatalog @relation(fields: [processId], references: [id])
   machine Machine? @relation(fields: [machineId], references: [id])
+  routeStep ProductionRouteStep? @relation(fields: [routeStepId], references: [id])
+  productionOrder ProductionOrder? @relation(fields: [productionOrderId], references: [id])
   @@index([lotId, status])
   @@index([processId, status])
   @@index([machineId, status])
+  @@index([routeStepId])
+  @@index([productionOrderId])
 }
 
 model LotMovement {
