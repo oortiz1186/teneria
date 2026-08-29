@@ -39,6 +39,10 @@ jobs:
           node-version: 22
       - name: Install
         run: npm install
+      - name: Validate operations scripts
+        run: |
+          bash -n scripts/backup-teneria.sh
+          bash -n scripts/restore-teneria.sh
       - name: Validate Prisma
         run: |
           set -o pipefail
