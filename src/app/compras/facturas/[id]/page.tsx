@@ -13,11 +13,12 @@ export default async function SupplierInvoiceDetail({ params }: { params: Promis
   const [invoice, documents] = await Promise.all([
     prisma.supplierInvoice.findUnique({
       where: { id },
-      include: { supplier: true, purchaseOrder: true, applications: { include: { payment: true }, orderBy: { payment: { paidAt: "desc" } } } }
+      include: { supplier: true, purchaseOrder: true, payments: { include: { payment: true } } }
     }),
     prisma.documentAttachment.findMany({ where: { entityType: "SUPPLIER_INVOICE", entityId: id, deletedAt: null }, orderBy: { createdAt: "desc" } })
   ]);
   if (!invoice) notFound();
+  const payments = [...invoice.payments].sort((a, b) => b.payment.paidAt.getTime() - a.payment.paidAt.getTime());
 
   return <>
     <div className="header">
@@ -51,8 +52,8 @@ export default async function SupplierInvoiceDetail({ params }: { params: Promis
     <div className="card">
       <h2>Pagos aplicados</h2>
       <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Folio pago</th><th>Método</th><th>Importe aplicado</th><th>Referencia</th></tr></thead><tbody>
-        {invoice.applications.map(a => <tr key={a.id}><td>{a.payment.paidAt.toLocaleString("es-MX")}</td><td>{a.payment.folio}</td><td>{a.payment.method}</td><td>${Number(a.amount).toFixed(2)}</td><td>{a.payment.reference ?? "—"}</td></tr>)}
-        {invoice.applications.length === 0 ? <tr><td colSpan={5} className="muted">Sin pagos aplicados.</td></tr> : null}
+        {payments.map(a => <tr key={a.id}><td>{a.payment.paidAt.toLocaleString("es-MX")}</td><td>{a.payment.folio}</td><td>{a.payment.method}</td><td>${Number(a.amount).toFixed(2)}</td><td>{a.payment.reference ?? "—"}</td></tr>)}
+        {payments.length === 0 ? <tr><td colSpan={5} className="muted">Sin pagos aplicados.</td></tr> : null}
       </tbody></table></div>
     </div>
   </>;
