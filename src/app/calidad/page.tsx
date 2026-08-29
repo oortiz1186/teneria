@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { addDefect, addEvidence, createInspection, resolveInspection } from "./actions";
+import { addDefect, createInspection, resolveInspection } from "./actions";
+import { EntityDocumentUpload } from "@/components/entity-document-upload";
+import { DocumentList } from "@/components/document-list";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,18 @@ export default async function QualityPage() {
     }),
     prisma.qualityDefectCatalog.findMany({ where: { active: true }, orderBy: { name: "asc" } })
   ]);
+
+  const inspectionIds = inspections.map(i => i.id);
+  const protectedDocuments = inspectionIds.length ? await prisma.documentAttachment.findMany({
+    where: { entityType: "QUALITY_INSPECTION", entityId: { in: inspectionIds }, deletedAt: null },
+    orderBy: { createdAt: "desc" }
+  }) : [];
+  const documentsByInspection = new Map<string, typeof protectedDocuments>();
+  for (const doc of protectedDocuments) {
+    const list = documentsByInspection.get(doc.entityId) ?? [];
+    list.push(doc);
+    documentsByInspection.set(doc.entityId, list);
+  }
 
   return (
     <>
@@ -47,8 +61,9 @@ export default async function QualityPage() {
       </div>
 
       <h2>Inspecciones recientes</h2>
-      {inspections.length === 0 ? <div className="card muted">Aún no hay inspecciones.</div> : inspections.map(i => (
-        <div className="card" key={i.id} style={{ marginBottom: 18 }}>
+      {inspections.length === 0 ? <div className="card muted">Aún no hay inspecciones.</div> : inspections.map(i => {
+        const docs = documentsByInspection.get(i.id) ?? [];
+        return <div className="card" key={i.id} style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div><strong>{i.folio}</strong> · {i.lot.folio} · <span className="badge">{i.status}</span><div className="muted">Grado: {i.grade ?? "—"} · Espesor: {i.thicknessMm ? `${Number(i.thicknessMm).toFixed(3)} mm` : "—"} · Área: {i.areaDm2 ? `${Number(i.areaDm2).toFixed(2)} dm²` : "—"}</div></div>
             <div>{i.inspectorName ?? "Sin inspector"}</div>
@@ -73,13 +88,10 @@ export default async function QualityPage() {
               <div className="full"><button className="button" type="submit">Agregar defecto</button></div>
             </form>
 
-            <form action={addEvidence} className="form" style={{ marginTop: 14 }}>
-              <input type="hidden" name="inspectionId" value={i.id} />
-              <div className="field full"><label>URL de evidencia</label><input name="fileUrl" placeholder="https://.../foto.jpg" required /></div>
-              <div className="field"><label>Nombre</label><input name="fileName" /></div>
-              <div className="field"><label>Notas</label><input name="notes" /></div>
-              <div className="full"><button className="button" type="submit">Agregar evidencia</button></div>
-            </form>
+            <div style={{ marginTop: 14 }}>
+              <strong>Nueva evidencia</strong>
+              <EntityDocumentUpload entityType="QUALITY_INSPECTION" entityId={i.id} defaultCategory="Evidencia de calidad" compact camera />
+            </div>
 
             <form action={resolveInspection} style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
               <input type="hidden" name="inspectionId" value={i.id} />
@@ -90,9 +102,14 @@ export default async function QualityPage() {
             </form>
           </>}
 
-          {i.evidence.length > 0 && <div style={{ marginTop: 14 }}><strong>Evidencias</strong>{i.evidence.map(e => <div key={e.id}><a href={e.fileUrl} target="_blank" rel="noreferrer">{e.fileName ?? e.fileUrl}</a></div>)}</div>}
-        </div>
-      ))}
+          <div style={{ marginTop: 16 }}>
+            <strong>Archivos protegidos</strong>
+            <div style={{ marginTop: 8 }}><DocumentList documents={docs} emptyText="Sin evidencia protegida." /></div>
+          </div>
+
+          {i.evidence.length > 0 && <div style={{ marginTop: 14 }}><strong>Evidencias históricas por URL</strong>{i.evidence.map(e => <div key={e.id}><a href={e.fileUrl} target="_blank" rel="noreferrer">{e.fileName ?? e.fileUrl}</a></div>)}</div>}
+        </div>;
+      })}
     </>
   );
 }
