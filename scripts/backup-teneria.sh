@@ -70,7 +70,7 @@ EOF
 mv "$TMP_DIR" "$FINAL_DIR"
 trap - EXIT
 
-find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name '20????????T??????Z' -mtime "+$RETENTION_DAYS" -print -exec rm -rf {} +
+find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name '20??????T??????Z' -mtime "+$RETENTION_DAYS" -print -exec rm -rf {} +
 
 printf 'Respaldo completado: %s\n' "$FINAL_DIR"
 printf 'Base: %s bytes\nDocumentos: %s bytes\n' "$DB_SIZE" "$DOC_SIZE"
