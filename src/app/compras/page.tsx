@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { createPurchaseOrder, createPurchaseRequest, receivePurchaseOrder, registerSupplierInvoice } from "./actions";
 
@@ -65,6 +66,6 @@ export default async function PurchasesPage() {
       <div className="full"><button className="button">Registrar factura / CxP</button></div>
     </form></div>
 
-    <h2>Facturas proveedor</h2><div className="table-wrap"><table><thead><tr><th>Folio</th><th>Proveedor</th><th>Total</th><th>Saldo</th><th>Estado</th><th>Vence</th></tr></thead><tbody>{invoices.length===0?<tr><td colSpan={6} className="muted">Sin facturas.</td></tr>:invoices.map(i=><tr key={i.id}><td>{i.folio}</td><td>{supplierMap.get(i.supplierId)??i.supplierId}</td><td>${Number(i.total).toFixed(2)}</td><td>${Number(i.balance).toFixed(2)}</td><td>{i.status}</td><td>{i.dueDate?.toLocaleDateString("es-MX")??"—"}</td></tr>)}</tbody></table></div>
+    <h2>Facturas proveedor</h2><div className="table-wrap"><table><thead><tr><th>Folio</th><th>Proveedor</th><th>Total</th><th>Saldo</th><th>Estado</th><th>Vence</th><th>Documentos</th></tr></thead><tbody>{invoices.length===0?<tr><td colSpan={7} className="muted">Sin facturas.</td></tr>:invoices.map(i=><tr key={i.id}><td><Link href={`/compras/facturas/${i.id}`}>{i.folio}</Link></td><td>{supplierMap.get(i.supplierId)??i.supplierId}</td><td>${Number(i.total).toFixed(2)}</td><td>${Number(i.balance).toFixed(2)}</td><td>{i.status}</td><td>{i.dueDate?.toLocaleDateString("es-MX")??"—"}</td><td><Link className="button button-secondary" href={`/compras/facturas/${i.id}`}>XML / PDF</Link></td></tr>)}</tbody></table></div>
   </>;
 }
