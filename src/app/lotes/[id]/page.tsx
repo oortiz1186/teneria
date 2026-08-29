@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/prisma";
 import { mergeLots, splitLot } from "../actions";
+import { EntityDocumentUpload } from "@/components/entity-document-upload";
+import { DocumentList } from "@/components/document-list";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +23,16 @@ export default async function LotDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!lot) notFound();
 
-  const mergeCandidates = await prisma.tanneryLot.findMany({
-    where: { id: { not: lot.id }, animalType: lot.animalType, status: { in: ["RECEIVED", "IN_PROCESS", "ON_HOLD"] } },
-    orderBy: { createdAt: "desc" }
-  });
+  const [mergeCandidates, documents] = await Promise.all([
+    prisma.tanneryLot.findMany({
+      where: { id: { not: lot.id }, animalType: lot.animalType, status: { in: ["RECEIVED", "IN_PROCESS", "ON_HOLD"] } },
+      orderBy: { createdAt: "desc" }
+    }),
+    prisma.documentAttachment.findMany({
+      where: { entityType: "TANNERY_LOT", entityId: lot.id, deletedAt: null },
+      orderBy: { createdAt: "desc" }
+    })
+  ]);
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const qrUrl = `${baseUrl}/lotes/qr/${lot.qrToken}`;
@@ -58,6 +66,12 @@ export default async function LotDetailPage({ params }: { params: Promise<{ id: 
           <img src={qrDataUrl} alt={`QR ${lot.folio}`} width={200} height={200} />
           <div className="muted" style={{ wordBreak: "break-all", fontSize: 12 }}>{qrUrl}</div>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 22 }}>
+        <h2>Fotos y documentos del lote</h2>
+        <EntityDocumentUpload entityType="TANNERY_LOT" entityId={lot.id} defaultCategory="Foto de lote" camera />
+        <div style={{ marginTop: 16 }}><DocumentList documents={documents} /></div>
       </div>
 
       <div className="card" style={{ marginBottom: 22 }}>
