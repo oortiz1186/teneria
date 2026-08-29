@@ -13,11 +13,12 @@ export default async function ReceivableDetail({ params }: { params: Promise<{ i
   const [receivable, documents] = await Promise.all([
     prisma.accountReceivable.findUnique({
       where: { id },
-      include: { customer: true, salesOrder: true, shipment: true, applications: { include: { payment: true }, orderBy: { payment: { paidAt: "desc" } } } }
+      include: { customer: true, salesOrder: true, shipment: true, payments: { include: { payment: true } } }
     }),
     prisma.documentAttachment.findMany({ where: { entityType: "ACCOUNT_RECEIVABLE", entityId: id, deletedAt: null }, orderBy: { createdAt: "desc" } })
   ]);
   if (!receivable) notFound();
+  const payments = [...receivable.payments].sort((a, b) => b.payment.paidAt.getTime() - a.payment.paidAt.getTime());
 
   return <>
     <div className="header">
@@ -52,8 +53,8 @@ export default async function ReceivableDetail({ params }: { params: Promise<{ i
     <div className="card">
       <h2>Cobros aplicados</h2>
       <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Folio pago</th><th>Método</th><th>Importe aplicado</th><th>Referencia</th></tr></thead><tbody>
-        {receivable.applications.map(a => <tr key={a.id}><td>{a.payment.paidAt.toLocaleString("es-MX")}</td><td>{a.payment.folio}</td><td>{a.payment.method}</td><td>${Number(a.amount).toFixed(2)}</td><td>{a.payment.reference ?? "—"}</td></tr>)}
-        {receivable.applications.length === 0 ? <tr><td colSpan={5} className="muted">Sin cobros aplicados.</td></tr> : null}
+        {payments.map(a => <tr key={a.id}><td>{a.payment.paidAt.toLocaleString("es-MX")}</td><td>{a.payment.folio}</td><td>{a.payment.method}</td><td>${Number(a.amount).toFixed(2)}</td><td>{a.payment.reference ?? "—"}</td></tr>)}
+        {payments.length === 0 ? <tr><td colSpan={5} className="muted">Sin cobros aplicados.</td></tr> : null}
       </tbody></table></div>
     </div>
   </>;
