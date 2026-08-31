@@ -6,19 +6,17 @@ After=network.target
 Type=oneshot
 User=teneria
 Group=teneria
-WorkingDirectory=/opt/teneria
-Environment=TENERIA_APP_DIR=/opt/teneria
-Environment=TENERIA_ENV_FILE=/opt/teneria/.env
+WorkingDirectory=/opt/teneria/app
+Environment=TENERIA_APP_DIR=/opt/teneria/app
+Environment=TENERIA_ENV_FILE=/opt/teneria/app/.env
 Environment=TENERIA_BACKUP_ROOT=/var/backups/teneria
 Environment=TENERIA_BACKUP_RETENTION_DAYS=14
-ExecStart=/bin/bash /opt/teneria/scripts/backup-teneria.sh
+ExecStart=/bin/bash /opt/teneria/app/scripts/backup-teneria.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
-
-# Basic hardening while allowing PostgreSQL network access and the configured backup/document paths.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=/var/backups/teneria /var/lib/teneria /opt/teneria/backups
+ReadWritePaths=/var/backups/teneria /var/lib/teneria
