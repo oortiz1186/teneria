@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createFolio } from "@/lib/folio";
 import { requireRole } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit";
+import { getAuditContext, writeAuditLog, writeAuditLogWithClient } from "@/lib/audit";
 
 const inspectionSchema = z.object({
   lotId: z.string().min(1),
@@ -49,21 +49,11 @@ export async function createInspection(formData: FormData) {
 
   const inspection = await prisma.qualityInspection.create({
     data: {
-      folio: createFolio("QC"),
-      lotId: data.lotId,
-      lotProcessId: data.lotProcessId,
-      processId,
-      grade: data.grade,
-      thicknessMm: data.thicknessMm,
-      areaDm2: data.areaDm2,
-      colorResult: data.colorResult,
-      visualResult: data.visualResult,
-      tensileResult: data.tensileResult,
-      adhesionResult: data.adhesionResult,
-      flexResult: data.flexResult,
-      inspectorName: data.inspectorName,
-      notes: data.notes,
-      status: "DRAFT"
+      folio: createFolio("QC"), lotId: data.lotId, lotProcessId: data.lotProcessId, processId,
+      grade: data.grade, thicknessMm: data.thicknessMm, areaDm2: data.areaDm2,
+      colorResult: data.colorResult, visualResult: data.visualResult, tensileResult: data.tensileResult,
+      adhesionResult: data.adhesionResult, flexResult: data.flexResult,
+      inspectorName: data.inspectorName, notes: data.notes, status: "DRAFT"
     }
   });
 
@@ -82,16 +72,8 @@ export async function addDefect(formData: FormData) {
   if (inspection.status !== "DRAFT") throw new Error("No se pueden agregar defectos a una inspección resuelta.");
 
   const finding = await prisma.qualityDefectFinding.create({
-    data: {
-      inspectionId,
-      defectId,
-      severity,
-      affectedHides: affectedHidesRaw ? Number(affectedHidesRaw) : null,
-      affectedAreaDm2: affectedAreaRaw ? Number(affectedAreaRaw) : null,
-      notes: String(formData.get("notes") || "") || null
-    }
+    data: { inspectionId, defectId, severity, affectedHides: affectedHidesRaw ? Number(affectedHidesRaw) : null, affectedAreaDm2: affectedAreaRaw ? Number(affectedAreaRaw) : null, notes: String(formData.get("notes") || "") || null }
   });
-
   await writeAuditLog({ actor, action: "QUALITY_DEFECT_ADDED", entityType: "QualityDefectFinding", entityId: finding.id, after: { inspectionId, defectId, severity, affectedHides: finding.affectedHides, affectedAreaDm2: finding.affectedAreaDm2 } });
   revalidatePath("/calidad");
 }
@@ -104,7 +86,6 @@ export async function addEvidence(formData: FormData) {
   const notes = String(formData.get("notes") || "") || null;
   const inspection = await prisma.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId } });
   if (inspection.status !== "DRAFT") throw new Error("No se puede agregar evidencia a una inspección resuelta.");
-
   const evidence = await prisma.qualityEvidence.create({ data: { inspectionId, fileUrl, fileName, notes } });
   await writeAuditLog({ actor, action: "QUALITY_EVIDENCE_ADDED", entityType: "QualityEvidence", entityId: evidence.id, after: { inspectionId, fileUrl, fileName } });
   revalidatePath("/calidad");
@@ -112,30 +93,50 @@ export async function addEvidence(formData: FormData) {
 
 export async function resolveInspection(formData: FormData) {
   const actor = await requireRole(["QUALITY"]);
+  const auditContext = await getAuditContext();
   const inspectionId = z.string().min(1).parse(formData.get("inspectionId"));
   const disposition = z.enum(["RELEASE", "REWORK", "REJECT", "HOLD"]).parse(formData.get("disposition"));
+  const resolutionNotes = String(formData.get("resolutionNotes") || "").trim();
 
-  const result = await prisma.$transaction(async tx => {
-    const inspection = await tx.qualityInspection.findUniqueOrThrow({ where: { id: inspectionId }, include: { lot: true } });
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "QualityInspection" WHERE id = ${inspectionId} FOR UPDATE`;
+    const inspection = await tx.qualityInspection.findUniqueOrThrow({
+      where: { id: inspectionId },
+      include: {
+        lot: { include: { productionOrder: true } },
+        defects: { include: { defect: true } }
+      }
+    });
     if (inspection.status !== "DRAFT") throw new Error("La inspección ya fue resuelta.");
 
-    const status = disposition === "RELEASE" ? "APPROVED" : disposition === "REWORK" ? "REWORK_REQUIRED" : disposition === "REJECT" ? "REJECTED" : "CONDITIONAL";
+    const criticalDefects = inspection.defects.filter(d => d.severity === "CRITICAL");
+    const hasTestResult = [inspection.colorResult, inspection.visualResult, inspection.tensileResult, inspection.adhesionResult, inspection.flexResult].some(v => Boolean(v?.trim()));
 
+    if (disposition === "RELEASE") {
+      if (!inspection.inspectorName?.trim()) throw new Error("No se puede liberar: falta identificar al inspector.");
+      if (!inspection.grade?.trim()) throw new Error("No se puede liberar: falta la clasificación/grado del lote.");
+      if (!hasTestResult) throw new Error("No se puede liberar: registra al menos un resultado de calidad.");
+      if (criticalDefects.length > 0) throw new Error(`No se puede liberar: existen ${criticalDefects.length} defecto(s) crítico(s). Usa reproceso, retención o rechazo.`);
+    } else if (resolutionNotes.length < 10) {
+      throw new Error("Para retener, reprocesar o rechazar debes capturar un dictamen/motivo de al menos 10 caracteres.");
+    }
+
+    const status = disposition === "RELEASE" ? "APPROVED" : disposition === "REWORK" ? "REWORK_REQUIRED" : disposition === "REJECT" ? "REJECTED" : "CONDITIONAL";
+    const combinedNotes = resolutionNotes ? [inspection.notes, `Dictamen ${disposition}: ${resolutionNotes}`].filter(Boolean).join("\n") : inspection.notes;
     const updatedInspection = await tx.qualityInspection.update({
       where: { id: inspectionId },
-      data: { status, disposition, releasedAt: disposition === "RELEASE" ? new Date() : null }
+      data: { status, disposition, notes: combinedNotes, releasedAt: disposition === "RELEASE" ? new Date() : null }
     });
 
     let lotStatus = inspection.lot.status;
+    let reworkOrder: { id: string; folio: string } | null = null;
+
     if (disposition === "RELEASE") {
       const lot = await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "COMPLETED", currentProcessCode: "QUALITY" } });
       lotStatus = lot.status;
       const finishedWarehouse = await tx.warehouse.findUnique({ where: { code: "PT" } });
       const existingFinished = await tx.lotMovement.findFirst({ where: { lotId: inspection.lotId, type: "FINISHED_GOODS", reference: inspection.folio } });
-      if (!existingFinished) {
-        await tx.lotMovement.create({ data: { lotId: inspection.lotId, warehouseId: finishedWarehouse?.id, type: "FINISHED_GOODS", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: "Lote liberado por calidad" } });
-      }
-
+      if (!existingFinished) await tx.lotMovement.create({ data: { lotId: inspection.lotId, warehouseId: finishedWarehouse?.id, type: "FINISHED_GOODS", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: "Lote liberado por calidad" } });
       if (inspection.lot.productionOrderId) {
         const unfinishedLots = await tx.tanneryLot.count({ where: { productionOrderId: inspection.lot.productionOrderId, status: { notIn: ["COMPLETED", "REJECTED", "CANCELLED", "CONSUMED"] } } });
         if (unfinishedLots === 0) await tx.productionOrder.update({ where: { id: inspection.lot.productionOrderId }, data: { status: "COMPLETED" } });
@@ -146,15 +147,40 @@ export async function resolveInspection(formData: FormData) {
     } else if (disposition === "REJECT") {
       const lot = await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "REJECTED" } });
       lotStatus = lot.status;
-      await tx.lotMovement.create({ data: { lotId: inspection.lotId, type: "REJECTION", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: "Rechazo por inspección de calidad" } });
+      await tx.lotMovement.create({ data: { lotId: inspection.lotId, type: "REJECTION", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: inspection.folio, notes: `Rechazo por calidad: ${resolutionNotes}` } });
     } else {
-      const lot = await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "ON_HOLD", currentProcessCode: "REWORK" } });
+      const originalOrder = inspection.lot.productionOrder;
+      const op = await tx.productionOrder.create({
+        data: {
+          folio: createFolio("RPK"),
+          customerId: originalOrder?.customerId ?? null,
+          salesOrderId: originalOrder?.salesOrderId ?? null,
+          routeId: originalOrder?.routeId ?? null,
+          articleCode: inspection.lot.articleCode ?? originalOrder?.articleCode ?? null,
+          targetColor: originalOrder?.targetColor ?? inspection.lot.color ?? null,
+          requestedHides: inspection.lot.currentHides,
+          requestedWeightKg: inspection.lot.currentWeightKg,
+          status: "RELEASED",
+          notes: `Reproceso generado por ${inspection.folio}. Motivo: ${resolutionNotes}`
+        }
+      });
+      reworkOrder = { id: op.id, folio: op.folio };
+      const lot = await tx.tanneryLot.update({ where: { id: inspection.lotId }, data: { status: "IN_PROCESS", currentProcessCode: "REWORK", productionOrderId: op.id } });
       lotStatus = lot.status;
+      await tx.lotMovement.create({ data: { lotId: inspection.lotId, type: "PROCESS_IN", hidesQuantity: inspection.lot.currentHides, weightKg: inspection.lot.currentWeightKg, reference: op.folio, notes: `Ingreso a reproceso por ${inspection.folio}` } });
     }
-    return { inspection, updatedInspection, lotStatus };
-  });
 
-  await writeAuditLog({ actor, action: "QUALITY_INSPECTION_RESOLVED", entityType: "QualityInspection", entityId: inspectionId, before: { status: result.inspection.status, lotStatus: result.inspection.lot.status }, after: { status: result.updatedInspection.status, disposition: result.updatedInspection.disposition, lotStatus: result.lotStatus, lotId: result.inspection.lotId, folio: result.inspection.folio } });
+    await writeAuditLogWithClient(tx, {
+      actor,
+      context: auditContext,
+      action: "QUALITY_INSPECTION_RESOLVED",
+      entityType: "QualityInspection",
+      entityId: inspectionId,
+      before: { status: inspection.status, lotStatus: inspection.lot.status, productionOrderId: inspection.lot.productionOrderId },
+      after: { status: updatedInspection.status, disposition: updatedInspection.disposition, lotStatus, lotId: inspection.lotId, folio: inspection.folio, resolutionNotes, criticalDefects: criticalDefects.map(d => ({ code: d.defect.code, severity: d.severity })), reworkOrder }
+    });
+  }, { isolationLevel: "Serializable" });
+
   revalidatePath("/calidad");
   revalidatePath("/lotes");
   revalidatePath("/produccion");
