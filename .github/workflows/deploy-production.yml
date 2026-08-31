@@ -1,0 +1,79 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit SHA de main a desplegar (vacío = commit actual del workflow)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teneria-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy exact commit
+    runs-on: [self-hosted, linux, x64, teneria-production]
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Resolve target
+        id: target
+        shell: bash
+        env:
+          INPUT_COMMIT: ${{ inputs.commit }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          TARGET="${INPUT_COMMIT:-$WORKFLOW_SHA}"
+          if [[ ! "$TARGET" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo "Commit inválido: $TARGET" >&2
+            exit 1
+          fi
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Commit solicitado: $TARGET" >> "$GITHUB_STEP_SUMMARY"
+          echo "Solicitado por: $GITHUB_ACTOR" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify production installation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -d /opt/teneria/app/.git
+          test -f /opt/teneria/app/.env
+          test -x /opt/teneria/app/scripts/deploy-production.sh || chmod +x /opt/teneria/app/scripts/deploy-production.sh
+
+      - name: Deploy
+        shell: bash
+        env:
+          TENERIA_APP_DIR: /opt/teneria/app
+          TENERIA_BACKUP_ROOT: /var/backups/teneria
+          TENERIA_DEPLOY_BRANCH: main
+          TENERIA_DEPLOY_SHA: ${{ steps.target.outputs.sha }}
+          TENERIA_SERVICE: teneria.service
+          TENERIA_HEALTH_URL: http://127.0.0.1:3000/api/health
+        run: |
+          set -Eeuo pipefail
+          cd "$TENERIA_APP_DIR"
+          bash scripts/deploy-production.sh
+
+      - name: Record result
+        if: always()
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo ""
+            echo "### Resultado"
+            echo "- Estado: $JOB_STATUS"
+            echo "- Commit: $TARGET_SHA"
+            echo "- Servidor: $(hostname)"
+            echo "- Fecha UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_STEP_SUMMARY"
