@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { acceptQuoteAndCreateOrder, confirmSalesOrder, createCommercialProduct, createCustomer, createQuote, createShipment, markQuoteSent } from "./actions";
+import { cancelShipment } from "./cancel-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function SalesPage() {
       take: 20
     }),
     prisma.tanneryLot.findMany({ where: { status: "COMPLETED" }, orderBy: { updatedAt: "desc" }, take: 50 }),
-    prisma.shipment.findMany({ include: { customer: true, items: { include: { product: true, lot: true } } }, orderBy: { createdAt: "desc" }, take: 20 })
+    prisma.shipment.findMany({ include: { customer: true, items: { include: { product: true, lot: true } }, receivables: true }, orderBy: { createdAt: "desc" }, take: 20 })
   ]);
 
   return <>
@@ -77,6 +78,6 @@ export default async function SalesPage() {
       <div className="full"><button className="button">Emitir remisión</button></div>
     </form></div>
 
-    <h2>Remisiones recientes</h2><div className="table-wrap"><table><thead><tr><th>Folio</th><th>Cliente</th><th>Fecha</th><th>Artículo / lote</th><th>Estado</th></tr></thead><tbody>{shipments.length===0?<tr><td colSpan={5} className="muted">Sin remisiones.</td></tr>:shipments.map(s=><tr key={s.id}><td>{s.folio}</td><td>{s.customer.name}</td><td>{s.shippedAt?.toLocaleString("es-MX")??"—"}</td><td>{s.items.map(i=>`${i.product.code} / ${i.lot?.folio??"—"} / ${Number(i.quantity)}`).join("; ")}</td><td>{s.status}</td></tr>)}</tbody></table></div>
+    <h2>Remisiones recientes</h2><div className="table-wrap"><table><thead><tr><th>Folio</th><th>Cliente</th><th>Fecha</th><th>Artículo / lote</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{shipments.length===0?<tr><td colSpan={6} className="muted">Sin remisiones.</td></tr>:shipments.map(s=><tr key={s.id}><td>{s.folio}</td><td>{s.customer.name}</td><td>{s.shippedAt?.toLocaleString("es-MX")??"—"}</td><td>{s.items.map(i=>`${i.product.code} / ${i.lot?.folio??"—"} / ${Number(i.quantity)}`).join("; ")}</td><td><span className="badge">{s.status}</span>{s.notes&&<div className="muted" style={{marginTop:4,whiteSpace:"pre-wrap"}}>{s.notes}</div>}</td><td>{s.status==="ISSUED"?<form action={cancelShipment} style={{display:"grid",gap:6,minWidth:220}}><input type="hidden" name="shipmentId" value={s.id}/><input name="reason" minLength={10} maxLength={500} placeholder="Motivo de cancelación" required/><button className="button button-secondary" type="submit">Cancelar remisión</button>{s.receivables.some(r=>r.status!=="CANCELLED")&&<span className="muted">Tiene CxC vigente; primero debe resolverse en Finanzas.</span>}</form>:<span className="muted">Sin acciones</span>}</td></tr>)}</tbody></table></div>
   </>;
 }
