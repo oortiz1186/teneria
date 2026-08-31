@@ -83,6 +83,11 @@ jobs:
         run: |
           set -o pipefail
           npx tsx scripts/finance-reversal-smoke.ts 2>&1 | tee finance-reversal-integration.log
+      - name: Quality rework smoke
+        if: success()
+        run: |
+          set -o pipefail
+          npx tsx scripts/quality-rework-smoke.ts 2>&1 | tee quality-rework-integration.log
       - name: Production build
         if: success()
         run: |
@@ -100,5 +105,6 @@ jobs:
             shipment-integration.log
             shipment-cancel-integration.log
             finance-reversal-integration.log
+            quality-rework-integration.log
             build.log
           if-no-files-found: ignore
