@@ -1,0 +1,29 @@
+[Unit]
+Description=Teneria ERP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teneria
+Group=teneria
+WorkingDirectory=/opt/teneria/app
+EnvironmentFile=/opt/teneria/app/.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/teneria /opt/teneria/app/backups
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
