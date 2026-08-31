@@ -7,7 +7,7 @@ Esta guía define la instalación recomendada de Tenería ERP como servicio syst
 - Código: `/opt/teneria/app`
 - Usuario de servicio: `teneria`
 - Documentos: `/var/lib/teneria/documents`
-- Backups: `/opt/teneria/app/backups` o un volumen externo mediante `TENERIA_BACKUP_ROOT`
+- Backups programados: `/var/backups/teneria`
 - Aplicación: `127.0.0.1:3000`
 - Exposición pública: reverse proxy o Cloudflare Tunnel
 - Servicio: `teneria.service`
@@ -19,8 +19,9 @@ No se recomienda publicar el puerto 3000 directamente a Internet.
 
 ```bash
 sudo useradd --system --create-home --shell /bin/bash teneria || true
-sudo mkdir -p /opt/teneria /var/lib/teneria/documents
-sudo chown -R teneria:teneria /opt/teneria /var/lib/teneria
+sudo mkdir -p /opt/teneria /var/lib/teneria/documents /var/backups/teneria
+sudo chown -R teneria:teneria /opt/teneria /var/lib/teneria /var/backups/teneria
+sudo chmod 750 /var/lib/teneria/documents /var/backups/teneria
 ```
 
 Clonar el repositorio:
@@ -110,6 +111,7 @@ Backup:
 
 ```bash
 journalctl -u teneria-backup.service --since today
+ls -lah /var/backups/teneria
 ```
 
 ## 6. Despliegue manual seguro
@@ -118,7 +120,7 @@ El servidor productivo debe mantener su árbol Git limpio.
 
 ```bash
 cd /opt/teneria/app
-sudo -u teneria bash scripts/deploy-production.sh
+sudo -u teneria env TENERIA_BACKUP_ROOT=/var/backups/teneria bash scripts/deploy-production.sh
 ```
 
 El script:
