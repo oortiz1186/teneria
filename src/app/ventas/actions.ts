@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createFolio } from "@/lib/folio";
 import { requireRole } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit";
+import { getAuditContext, writeAuditLog, writeAuditLogWithClient } from "@/lib/audit";
 
 const productSchema = z.object({
   code: z.string().min(1),
@@ -164,16 +164,71 @@ export async function confirmSalesOrder(formData: FormData) {
 
 export async function createShipment(formData: FormData) {
   const actor = await requireRole(["SALES"]);
+  const auditContext = await getAuditContext();
   const salesOrderId = z.string().min(1).parse(formData.get("salesOrderId"));
   const lotId = z.string().min(1).parse(formData.get("lotId"));
   const productId = z.string().min(1).parse(formData.get("productId"));
   const quantity = z.coerce.number().positive().parse(formData.get("quantity"));
 
-  const result = await prisma.$transaction(async (tx) => {
-    const order = await tx.salesOrder.findUniqueOrThrow({ where: { id: salesOrderId } });
-    const lot = await tx.tanneryLot.findUniqueOrThrow({ where: { id: lotId }, include: { productionOrder: true } });
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "SalesOrder" WHERE id = ${salesOrderId} FOR UPDATE`;
+
+    const order = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: salesOrderId },
+      include: { items: true }
+    });
+    if (["DRAFT", "CANCELLED", "SHIPPED"].includes(order.status)) {
+      throw new Error("El pedido no está disponible para remisión.");
+    }
+
+    const orderItem = order.items.find(item => item.productId === productId);
+    if (!orderItem) throw new Error("El producto no pertenece al pedido seleccionado.");
+
+    const lot = await tx.tanneryLot.findUniqueOrThrow({
+      where: { id: lotId },
+      include: { productionOrder: true }
+    });
     if (lot.status !== "COMPLETED") throw new Error("Sólo se pueden remisionar lotes liberados/terminados.");
     if (lot.productionOrder?.salesOrderId !== order.id) throw new Error("El lote no pertenece a este pedido.");
+    if (lot.productionOrder.articleCode && lot.productionOrder.articleCode !== orderItem.description && lot.productionOrder.articleCode !== undefined) {
+      const product = await tx.commercialProduct.findUniqueOrThrow({ where: { id: productId } });
+      if (lot.productionOrder.articleCode !== product.code) throw new Error("El lote terminado corresponde a otro producto del pedido.");
+    }
+
+    const shippedForProduct = await tx.shipmentItem.aggregate({
+      where: {
+        productId,
+        shipment: { salesOrderId: order.id, status: { not: "CANCELLED" } }
+      },
+      _sum: { quantity: true }
+    });
+    const alreadyShipped = Number(shippedForProduct._sum.quantity ?? 0);
+    const orderedQuantity = Number(orderItem.quantity);
+    const remaining = Math.max(0, orderedQuantity - alreadyShipped);
+    if (quantity > remaining + 0.000001) {
+      throw new Error(`La cantidad excede el pendiente del producto. Pendiente: ${remaining.toFixed(3)}.`);
+    }
+
+    const product = await tx.commercialProduct.findUniqueOrThrow({ where: { id: productId } });
+    if (product.unit === "PIECE" && quantity > lot.currentHides) {
+      throw new Error(`La remisión excede las ${lot.currentHides} piezas disponibles en el lote.`);
+    }
+    if (product.unit === "KG" && quantity > Number(lot.currentWeightKg) + 0.000001) {
+      throw new Error(`La remisión excede los ${Number(lot.currentWeightKg).toFixed(3)} kg disponibles en el lote.`);
+    }
+
+    const shippedFromLot = await tx.shipmentItem.aggregate({
+      where: {
+        lotId,
+        shipment: { status: { not: "CANCELLED" } }
+      },
+      _sum: { quantity: true }
+    });
+    const lotAlreadyShipped = Number(shippedFromLot._sum.quantity ?? 0);
+    const lotCapacity = product.unit === "PIECE" ? lot.currentHides : product.unit === "KG" ? Number(lot.currentWeightKg) : null;
+    if (lotCapacity !== null && lotAlreadyShipped + quantity > lotCapacity + 0.000001) {
+      throw new Error(`La cantidad acumulada excede la disponibilidad del lote. Disponible restante: ${Math.max(0, lotCapacity - lotAlreadyShipped).toFixed(3)}.`);
+    }
 
     const shipment = await tx.shipment.create({
       data: {
@@ -185,10 +240,28 @@ export async function createShipment(formData: FormData) {
         items: { create: { productId, lotId, quantity } }
       }
     });
-    const updatedOrder = await tx.salesOrder.update({ where: { id: order.id }, data: { status: "PARTIALLY_SHIPPED" } });
-    return { shipment, previousOrderStatus: order.status, updatedOrderStatus: updatedOrder.status };
-  });
 
-  await writeAuditLog({ actor, action: "SHIPMENT_CREATED", entityType: "Shipment", entityId: result.shipment.id, after: { folio: result.shipment.folio, salesOrderId, lotId, productId, quantity } });
+    const shipmentTotals = await tx.shipmentItem.groupBy({
+      by: ["productId"],
+      where: { shipment: { salesOrderId: order.id, status: { not: "CANCELLED" } } },
+      _sum: { quantity: true }
+    });
+    const shippedMap = new Map(shipmentTotals.map(row => [row.productId, Number(row._sum.quantity ?? 0)]));
+    const allFulfilled = order.items.every(item => (shippedMap.get(item.productId) ?? 0) + 0.000001 >= Number(item.quantity));
+    const anyShipped = shipmentTotals.some(row => Number(row._sum.quantity ?? 0) > 0);
+    const nextStatus = allFulfilled ? "SHIPPED" : anyShipped ? "PARTIALLY_SHIPPED" : order.status;
+
+    await tx.salesOrder.update({ where: { id: order.id }, data: { status: nextStatus } });
+    await writeAuditLogWithClient(tx, {
+      actor,
+      context: auditContext,
+      action: "SHIPMENT_CREATED",
+      entityType: "Shipment",
+      entityId: shipment.id,
+      before: { salesOrderStatus: order.status, alreadyShipped, remaining },
+      after: { folio: shipment.folio, salesOrderId, lotId, productId, quantity, salesOrderStatus: nextStatus }
+    });
+  }, { isolationLevel: "Serializable" });
+
   revalidatePath("/ventas");
 }
