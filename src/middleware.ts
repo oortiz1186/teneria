@@ -20,6 +20,17 @@ const roleRules: Array<{ prefix: string; roles: string[] }> = [
   { prefix: "/configuracion", roles: ["ADMIN"] }
 ];
 
+function roleHome(roles: string[]) {
+  if (roles.includes("ADMIN") || roles.includes("FINANCE")) return "/";
+  if (roles.includes("PRODUCTION")) return "/operacion";
+  if (roles.includes("QUALITY")) return "/calidad";
+  if (roles.includes("WAREHOUSE")) return "/operacion";
+  if (roles.includes("PURCHASING")) return "/compras";
+  if (roles.includes("SALES")) return "/ventas";
+  if (roles.includes("MAINTENANCE")) return "/mantenimiento";
+  return "/cuenta";
+}
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   if (PUBLIC_PATHS.some(p => path === p || path.startsWith(`${p}/`))) return NextResponse.next();
@@ -39,10 +50,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (path === "/" && !session.roles.includes("ADMIN") && !session.roles.includes("FINANCE")) {
+    const url = request.nextUrl.clone();
+    url.pathname = roleHome(session.roles);
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   const rule = roleRules.find(r => path === r.prefix || path.startsWith(`${r.prefix}/`));
   if (rule && !session.roles.includes("ADMIN") && !rule.roles.some(role => session.roles.includes(role))) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = roleHome(session.roles);
     url.searchParams.set("forbidden", "1");
     return NextResponse.redirect(url);
   }
