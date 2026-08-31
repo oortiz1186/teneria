@@ -63,11 +63,14 @@ export default async function QualityPage() {
       <h2>Inspecciones recientes</h2>
       {inspections.length === 0 ? <div className="card muted">Aún no hay inspecciones.</div> : inspections.map(i => {
         const docs = documentsByInspection.get(i.id) ?? [];
+        const criticalCount = i.defects.filter(d => d.severity === "CRITICAL").length;
         return <div className="card" key={i.id} style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div><strong>{i.folio}</strong> · {i.lot.folio} · <span className="badge">{i.status}</span><div className="muted">Grado: {i.grade ?? "—"} · Espesor: {i.thicknessMm ? `${Number(i.thicknessMm).toFixed(3)} mm` : "—"} · Área: {i.areaDm2 ? `${Number(i.areaDm2).toFixed(2)} dm²` : "—"}</div></div>
             <div>{i.inspectorName ?? "Sin inspector"}</div>
           </div>
+
+          {criticalCount > 0 && <div className="card" style={{ marginTop: 12, border: "1px solid currentColor" }}><strong>Bloqueo de liberación:</strong> {criticalCount} defecto(s) crítico(s). Este lote sólo puede retenerse, reprocesarse o rechazarse hasta resolverlos.</div>}
 
           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}>
             <div><strong>Color</strong><div className="muted">{i.colorResult ?? "—"}</div></div>
@@ -93,12 +96,15 @@ export default async function QualityPage() {
               <EntityDocumentUpload entityType="QUALITY_INSPECTION" entityId={i.id} defaultCategory="Evidencia de calidad" compact camera />
             </div>
 
-            <form action={resolveInspection} style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+            <form action={resolveInspection} className="form" style={{ marginTop: 14 }}>
               <input type="hidden" name="inspectionId" value={i.id} />
-              <button className="button" name="disposition" value="RELEASE">Liberar</button>
-              <button className="button" name="disposition" value="HOLD">Retener</button>
-              <button className="button" name="disposition" value="REWORK">Reproceso</button>
-              <button className="button" name="disposition" value="REJECT">Rechazar</button>
+              <div className="field full"><label>Dictamen / motivo</label><textarea name="resolutionNotes" rows={3} placeholder="Obligatorio para retención, reproceso o rechazo. Para liberación puede usarse como observación final." /></div>
+              <div className="full" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="button" name="disposition" value="RELEASE" disabled={criticalCount > 0}>Liberar</button>
+                <button className="button" name="disposition" value="HOLD">Retener</button>
+                <button className="button" name="disposition" value="REWORK">Crear reproceso</button>
+                <button className="button" name="disposition" value="REJECT">Rechazar</button>
+              </div>
             </form>
           </>}
 
