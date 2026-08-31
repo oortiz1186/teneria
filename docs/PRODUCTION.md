@@ -75,12 +75,18 @@ sudo cp deploy/systemd/teneria-health.timer /etc/systemd/system/
 sudo cp deploy/systemd/teneria-backup.service /etc/systemd/system/
 sudo cp deploy/systemd/teneria-backup.timer /etc/systemd/system/
 
+sudo cp deploy/sudoers/teneria-deploy /etc/sudoers.d/teneria-deploy
+sudo chmod 0440 /etc/sudoers.d/teneria-deploy
+sudo visudo -cf /etc/sudoers.d/teneria-deploy
+
 sudo chmod +x scripts/backup-teneria.sh scripts/restore-teneria.sh scripts/deploy-production.sh scripts/health-watch.sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now teneria.service
 sudo systemctl enable --now teneria-health.timer
 sudo systemctl enable --now teneria-backup.timer
 ```
+
+La regla `sudoers` sólo permite al usuario `teneria` ejecutar `systemctl restart teneria.service`; no concede sudo general.
 
 Comprobar:
 
