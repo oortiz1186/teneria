@@ -78,6 +78,11 @@ jobs:
         run: |
           set -o pipefail
           npx tsx scripts/shipment-cancel-smoke.ts 2>&1 | tee shipment-cancel-integration.log
+      - name: Finance reversal smoke
+        if: success()
+        run: |
+          set -o pipefail
+          npx tsx scripts/finance-reversal-smoke.ts 2>&1 | tee finance-reversal-integration.log
       - name: Production build
         if: success()
         run: |
@@ -94,5 +99,6 @@ jobs:
             integration.log
             shipment-integration.log
             shipment-cancel-integration.log
+            finance-reversal-integration.log
             build.log
           if-no-files-found: ignore
