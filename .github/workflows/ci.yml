@@ -68,6 +68,11 @@ jobs:
         run: |
           set -o pipefail
           npm run test:integration 2>&1 | tee integration.log
+      - name: Shipment concurrency smoke
+        if: success()
+        run: |
+          set -o pipefail
+          npx tsx scripts/shipment-concurrency-smoke.ts 2>&1 | tee shipment-integration.log
       - name: Production build
         if: success()
         run: |
@@ -82,5 +87,6 @@ jobs:
             prisma-validate.log
             typescript.log
             integration.log
+            shipment-integration.log
             build.log
           if-no-files-found: ignore
