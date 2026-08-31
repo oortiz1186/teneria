@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth-token";
 
-const PUBLIC_PATHS = ["/login", "/favicon.ico"];
+const PUBLIC_PATHS = ["/login", "/favicon.ico", "/api/health"];
 
 const roleRules: Array<{ prefix: string; roles: string[] }> = [
   { prefix: "/operacion", roles: ["PRODUCTION", "WAREHOUSE", "QUALITY", "MAINTENANCE"] },
