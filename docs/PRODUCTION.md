@@ -1,6 +1,6 @@
 # Operación productiva en Ubuntu
 
-Esta guía define la instalación recomendada de Tenería ERP como servicio systemd, con health check, backup previo a despliegues y rollback de código.
+Esta guía define la instalación recomendada de Tenería ERP como servicio systemd, con health check, backup previo a despliegues, rollback de código y despliegue manual protegido desde GitHub Actions.
 
 ## Arquitectura recomendada
 
@@ -12,6 +12,7 @@ Esta guía define la instalación recomendada de Tenería ERP como servicio syst
 - Exposición pública: reverse proxy o Cloudflare Tunnel
 - Servicio: `teneria.service`
 - Watchdog: cada 2 minutos
+- Runner GitHub: self-hosted dedicado, usuario `teneria`, etiqueta `teneria-production`
 
 No se recomienda publicar el puerto 3000 directamente a Internet.
 
@@ -124,22 +125,37 @@ ls -lah /var/backups/teneria
 
 El servidor productivo debe mantener su árbol Git limpio.
 
+Última versión de `main`:
+
 ```bash
 cd /opt/teneria/app
 sudo -u teneria env TENERIA_BACKUP_ROOT=/var/backups/teneria bash scripts/deploy-production.sh
 ```
 
+Commit exacto aprobado:
+
+```bash
+cd /opt/teneria/app
+sudo -u teneria env \
+  TENERIA_BACKUP_ROOT=/var/backups/teneria \
+  TENERIA_DEPLOY_SHA=<sha> \
+  bash scripts/deploy-production.sh
+```
+
+Si se proporciona `TENERIA_DEPLOY_SHA`, el script verifica que el commit exista y sea ancestro de `origin/main`. No acepta desplegar un commit ajeno al historial productivo.
+
 El script:
 
 1. obtiene `origin/main`;
 2. rechaza el despliegue si hay cambios locales;
-3. instala dependencias y genera Prisma;
-4. ejecuta el build antes de tocar la base productiva;
-5. crea backup de PostgreSQL + documentos;
-6. aplica `prisma migrate deploy`;
-7. reinicia `teneria.service`;
-8. consulta `/api/health`;
-9. si el health no se recupera, vuelve al commit anterior, reconstruye y reinicia.
+3. resuelve y valida el commit exacto objetivo;
+4. instala dependencias y genera Prisma;
+5. ejecuta el build antes de tocar la base productiva;
+6. crea backup de PostgreSQL + documentos;
+7. aplica `prisma migrate deploy`;
+8. reinicia `teneria.service`;
+9. consulta `/api/health`;
+10. si el health no se recupera, vuelve al commit anterior, reconstruye y reinicia.
 
 ### Advertencia de rollback
 
@@ -153,6 +169,80 @@ Esto evita reinicios por una falla transitoria única y deja registro en journal
 
 ## 8. Deploy bajo demanda desde GitHub
 
-La forma más segura es instalar posteriormente un GitHub Actions self-hosted runner dedicado al servidor y limitarlo a un environment protegido. No se deben guardar claves SSH privadas dentro del repositorio ni exponer un webhook de despliegue sin autenticación.
+El repositorio incluye `.github/workflows/deploy-production.yml`. Es un workflow **manual** (`workflow_dispatch`), no se ejecuta por cada push.
 
-Hasta instalar ese runner, `scripts/deploy-production.sh` es el mecanismo oficial de despliegue.
+### 8.1 Crear el environment `production`
+
+En GitHub, crear el environment llamado exactamente:
+
+```text
+production
+```
+
+Se recomienda configurar protección/aprobadores para que un despliegue requiera autorización explícita antes de ejecutarse.
+
+El workflow declara `environment: production`, de modo que usa las reglas definidas allí.
+
+### 8.2 Instalar un self-hosted runner dedicado
+
+En GitHub abrir la configuración del repositorio, sección Actions / Runners, crear un runner Linux x64 y seguir **los comandos que GitHub genere en ese momento**. El token de registro es temporal y no debe copiarse al repositorio ni a documentación persistente.
+
+Recomendaciones obligatorias para este servidor:
+
+- instalar el runner como usuario `teneria`, nunca como `root`;
+- ubicarlo fuera del código, por ejemplo `/opt/teneria/runner`;
+- asignar la etiqueta adicional `teneria-production`;
+- instalarlo como servicio para que vuelva tras reiniciar Ubuntu;
+- no reutilizar este runner para proyectos no relacionados;
+- no ejecutar workflows de `pull_request` sobre este runner.
+
+El job productivo exige exactamente estas etiquetas:
+
+```yaml
+runs-on: [self-hosted, linux, x64, teneria-production]
+```
+
+La CI normal continúa ejecutándose en runners hospedados por GitHub; código de un pull request no debe ejecutarse en el servidor productivo.
+
+### 8.3 Ejecutar un despliegue
+
+En GitHub:
+
+```text
+Actions
+→ Deploy production
+→ Run workflow
+```
+
+El campo `commit` es opcional. Si se deja vacío, usa el commit desde el que se ejecutó el workflow. También se puede introducir explícitamente un SHA de `main`.
+
+El workflow valida el SHA, pasa ese commit exacto a `scripts/deploy-production.sh` y registra en el Summary:
+
+- usuario que solicitó el despliegue;
+- commit solicitado;
+- resultado;
+- hostname del servidor;
+- fecha UTC.
+
+### 8.4 Concurrencia y seguridad
+
+El workflow utiliza:
+
+```yaml
+concurrency:
+  group: teneria-production
+  cancel-in-progress: false
+```
+
+Por tanto, un segundo deploy espera al primero; nunca cancela una migración o despliegue que ya esté ejecutándose.
+
+Los permisos del workflow están limitados a:
+
+```yaml
+permissions:
+  contents: read
+```
+
+No necesita claves SSH, tokens de base de datos ni `AUTH_SECRET` dentro de GitHub: el deployment se ejecuta localmente en el servidor y utiliza `/opt/teneria/app/.env`.
+
+El runner sí debe protegerse como infraestructura productiva, ya que cualquier workflow autorizado que se ejecute en él tiene acceso a los recursos disponibles para el usuario `teneria`.
