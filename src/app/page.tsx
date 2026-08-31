@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 const money = (value: unknown) => Number(value ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 
 export default async function DashboardPage() {
+  await requireRole(["FINANCE"]);
+
   const [lots, inProcess, completedLots, productionOrders, machines, qualityRejected, qualityRework, chemicals, receivables, payables, salesOrders, costSnapshots, recentLots] = await Promise.all([
     prisma.tanneryLot.count(),
     prisma.tanneryLot.count({ where: { status: "IN_PROCESS" } }),
