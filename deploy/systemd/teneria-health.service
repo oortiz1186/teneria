@@ -1,0 +1,7 @@
+[Unit]
+Description=Teneria ERP health watchdog
+After=teneria.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/teneria/app/scripts/health-watch.sh
