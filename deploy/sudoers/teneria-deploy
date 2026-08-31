@@ -1,0 +1,3 @@
+# Teneria ERP: allow only the service restart required by scripts/deploy-production.sh
+# Install as /etc/sudoers.d/teneria-deploy with mode 0440 and validate with visudo -cf.
+teneria ALL=(root) NOPASSWD: /usr/bin/systemctl restart teneria.service
