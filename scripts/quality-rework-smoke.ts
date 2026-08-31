@@ -11,9 +11,10 @@ async function main() {
     prisma.processCatalog.create({ data: { code: `CI-QC-P3-${suffix}`, name: "Acabado CI", sequence: 1003 } })
   ]);
   const route = await prisma.productionRoute.create({ data: { code: `CI-QC-R-${suffix}`, name: "Ruta CI" } });
-  const steps = [];
+  const steps: Array<{ id: string; routeId: string; processId: string; sequence: number }> = [];
   for (let i = 0; i < processes.length; i++) {
-    steps.push(await prisma.productionRouteStep.create({ data: { routeId: route.id, processId: processes[i].id, sequence: i + 1 } }));
+    const step = await prisma.productionRouteStep.create({ data: { routeId: route.id, processId: processes[i].id, sequence: i + 1 } });
+    steps.push({ id: step.id, routeId: step.routeId, processId: step.processId, sequence: step.sequence });
   }
   const customer = await prisma.customer.create({ data: { code: `CI-QC-CLI-${suffix}`, name: "CI Quality Customer" } });
   const originalOrder = await prisma.productionOrder.create({
