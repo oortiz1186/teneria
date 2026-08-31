@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Teneria ERP health watchdog periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=teneria-health.service
+
+[Install]
+WantedBy=timers.target
